@@ -19,18 +19,19 @@
 }
 
 html {
+  min-height: 100%;
   background: #050507;
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100svh;
   margin: 0;
   background: transparent;
   color: #f8fafc;
 }
 
 #app {
-  min-height: 100vh;
+  min-height: 100svh;
 }
 
 * {
@@ -62,6 +63,11 @@ img {
   max-width: 100%;
 }
 
+video {
+  display: block;
+  max-width: 100%;
+}
+
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -69,4 +75,12 @@ img {
 
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }

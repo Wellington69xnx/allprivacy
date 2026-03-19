@@ -4,9 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "node server/index.mjs",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
@@ -19,7 +22,10 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "concurrently": "^9.2.1",
+    "express": "^5.2.1",
     "framer-motion": "^12.38.0",
+    "multer": "^2.1.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   }

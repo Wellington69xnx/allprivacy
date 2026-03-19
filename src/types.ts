@@ -1,4 +1,11 @@
 export type MediaType = 'image' | 'video';
+export type HeroBackgroundTarget = 'mobile' | 'desktop';
+export type UploadAssetBucket =
+  | 'model-profile'
+  | 'model-cover'
+  | 'model-media'
+  | 'hero-background'
+  | 'group-proof';
 
 export interface ModelMedia {
   id: string;
@@ -14,7 +21,7 @@ export interface ModelProfile {
   name: string;
   handle: string;
   tagline: string;
-  status: string;
+  status?: string;
   accentFrom: string;
   accentTo: string;
   profileImage: string;
@@ -31,4 +38,47 @@ export interface PreviewCard {
   src?: string;
   accentFrom: string;
   accentTo: string;
+}
+
+export interface GroupProofItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  image: string;
+}
+
+export interface HeroBackgroundItem {
+  id: string;
+  title?: string;
+  image: string;
+  target: HeroBackgroundTarget;
+}
+
+export interface SiteContent {
+  models: ModelProfile[];
+  groupProofItems: GroupProofItem[];
+  heroBackgrounds: {
+    mobile: HeroBackgroundItem[];
+    desktop: HeroBackgroundItem[];
+  };
+}
+
+export interface UploadAssetOptions {
+  bucket?: UploadAssetBucket;
+  modelName?: string;
+  target?: HeroBackgroundTarget;
+  mediaType?: MediaType;
+}
+
+export interface UploadAssetProgress {
+  loaded: number;
+  total: number;
+  percent: number;
+}
+
+export interface UploadAssetResult {
+  url: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 }

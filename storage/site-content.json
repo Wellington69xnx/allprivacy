@@ -1,0 +1,198 @@
+{
+  "models": [
+    {
+      "id": "model-1773819961316-yl6jm8eg",
+      "name": "Mel Breia",
+      "handle": "@melbreia",
+      "tagline": "Loira linda",
+      "accentFrom": "#dc2626",
+      "accentTo": "#7e22ce",
+      "profileImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20perfil%202.png",
+      "coverImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20capa%202.png",
+      "gallery": [
+        {
+          "id": "media-1773820040468-59nye4ql",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%203.mp4"
+        },
+        {
+          "id": "media-1773820040468-u68fr0nq",
+          "type": "video",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4"
+        },
+        {
+          "id": "media-1773820051595-mbwsv6f5",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204.png"
+        },
+        {
+          "id": "media-1773820051595-4wra7uh1",
+          "type": "image",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%202.png"
+        },
+        {
+          "id": "media-1773820051595-ohscmr6d",
+          "type": "image",
+          "title": "Previa 3",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%203.png"
+        }
+      ]
+    },
+    {
+      "id": "model-1773821913337-b6k1xofx",
+      "name": "Moises Godinho",
+      "handle": "@moisesgodinho",
+      "tagline": "Moises ama dar esse cuzao dele",
+      "accentFrom": "#dc2626",
+      "accentTo": "#7e22ce",
+      "profileImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20perfil%202.png",
+      "coverImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20capa%202.png",
+      "gallery": [
+        {
+          "id": "media-1773822211402-n2ya5ktd",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204.mp4"
+        },
+        {
+          "id": "media-1773822211403-y85wx0b4",
+          "type": "video",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4"
+        },
+        {
+          "id": "media-1773822211403-pnwrelgi",
+          "type": "video",
+          "title": "Previa 3",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4"
+        },
+        {
+          "id": "media-1773822261620-hvdxunbe",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205.png"
+        },
+        {
+          "id": "media-1773822261620-vfy6ites",
+          "type": "image",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%202.png"
+        },
+        {
+          "id": "media-1773822261620-ezuekbkl",
+          "type": "image",
+          "title": "Previa 3",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%203.png"
+        },
+        {
+          "id": "media-1773822261620-46o7frpj",
+          "type": "image",
+          "title": "Previa 4",
+          "subtitle": "",
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205.jpeg"
+        }
+      ]
+    },
+    {
+      "id": "model-34bd9e55-35a0-42e3-84ea-6915f7d5ecce",
+      "name": "Yan",
+      "handle": "yangregory",
+      "tagline": "",
+      "accentFrom": "#f43f5e",
+      "accentTo": "#9333ea",
+      "profileImage": "/uploads/yan/Yan%20foto%20de%20perfil%202.jpg",
+      "coverImage": "/uploads/yan/Yan%20foto%20de%20capa%202.jpeg",
+      "gallery": [
+        {
+          "id": "media-371aae44-d629-41f8-93db-89e96081de47",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/yan/Yan%20video%203.mp4",
+          "src": "/uploads/yan/Yan%20video%203.mp4"
+        },
+        {
+          "id": "media-6b3a3ec8-191e-45e7-94ce-5400629bd892",
+          "type": "video",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/yan/Yan%20video%203%202.mp4",
+          "src": "/uploads/yan/Yan%20video%203%202.mp4"
+        }
+      ]
+    },
+    {
+      "id": "model-a7824651-e53c-4c28-804d-bdc2d06d737c",
+      "name": "Bruno Souza",
+      "handle": "brunosouza",
+      "tagline": "da o cu e chupa",
+      "accentFrom": "#ef4444",
+      "accentTo": "#7c3aed",
+      "profileImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20perfil.jpg",
+      "coverImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20capa.jpeg",
+      "gallery": []
+    },
+    {
+      "id": "model-01933fcc-8daf-4776-b976-96d540984be8",
+      "name": "carlos eduardo",
+      "handle": "carloseduardo",
+      "tagline": "chuopa e chupa",
+      "accentFrom": "#ef4444",
+      "accentTo": "#7c3aed",
+      "profileImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20perfil.jpeg",
+      "coverImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20capa.jpeg",
+      "gallery": []
+    }
+  ],
+  "groupProofItems": [],
+  "heroBackgrounds": {
+    "mobile": [
+      {
+        "id": "hero-1773819979556-fz8a6giu",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-1773819990454-z82abytl",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203%202.png",
+        "target": "mobile"
+      }
+    ],
+    "desktop": [
+      {
+        "id": "hero-2b2c70ce-7685-4099-b174-2e545a093149",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203.jpeg",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-e66db89e-0bfd-499e-8758-18dfa0db8f5d",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203%202.jpeg",
+        "target": "desktop"
+      }
+    ]
+  }
+}
