@@ -1,9 +1,11 @@
+import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { startTelegramBot } from './telegram-bot.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,8 +13,12 @@ const projectRoot = path.resolve(__dirname, '..');
 const storageDir = path.join(projectRoot, 'storage');
 const uploadsDir = path.join(storageDir, 'uploads');
 const siteContentPath = path.join(storageDir, 'site-content.json');
+const telegramFileCachePath = path.join(storageDir, 'telegram-file-cache.json');
 const distDir = path.join(projectRoot, 'dist');
 const port = Number(process.env.PORT || 3001);
+const sitePublicUrl = process.env.SITE_PUBLIC_URL || `http://localhost:${port}`;
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
+const telegramGroupUrl = process.env.TELEGRAM_GROUP_URL || sitePublicUrl;
 const adminCookieName = 'allprivacy_admin';
 const adminUsername = 'well69xnx';
 const adminPassword = 'Download';
@@ -787,6 +793,23 @@ const migratedSiteContent = await migrateSiteContentFiles(await readSiteContent(
 await writeSiteContent(migratedSiteContent);
 await moveLooseRootUploadsToLegacy();
 
+const telegramBot = startTelegramBot({
+  token: telegramBotToken,
+  readSiteContent,
+  siteUrl: sitePublicUrl,
+  groupUrl: telegramGroupUrl,
+  resolveLocalAssetPath: resolveLocalUploadPath,
+  cacheFilePath: telegramFileCachePath,
+});
+
 app.listen(port, () => {
   console.log(`AllPrivacy API pronta em http://localhost:${port}`);
+
+  if (telegramBot.enabled) {
+    console.log('Bot Telegram iniciado com integracao ao conteudo do site.');
+  } else {
+    console.log(
+      'Bot Telegram desativado. Defina TELEGRAM_BOT_TOKEN para ativar a integracao.',
+    );
+  }
 });

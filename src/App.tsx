@@ -13,9 +13,16 @@ import { getRandomPreviewCardsByType, heroBackdrop } from './data/models';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import { useSiteContent } from './hooks/useSiteContent';
 import { findModelByRouteSlug, getAdminPath, getHomePath } from './lib/modelRoute';
+import {
+  getHomeTelegramPayload,
+  getModelTelegramPayload,
+  getTelegramEntryUrl,
+} from './lib/telegramEntry';
 import type { PreviewCard } from './types';
 
-const TELEGRAM_GROUP_URL = 'https://t.me/seu_grupo_vip';
+const TELEGRAM_GROUP_URL =
+  import.meta.env.VITE_TELEGRAM_GROUP_URL || 'https://t.me/seu_grupo_vip';
+const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
 
 const perks = [
   'Entrada em um toque',
@@ -285,6 +292,11 @@ export default function App() {
 
   const selectedModel =
     siteContent.models.find((model) => model.id === selectedModelId) ?? null;
+  const buildEntryHref = (payload: string) =>
+    TELEGRAM_BOT_USERNAME
+      ? getTelegramEntryUrl(TELEGRAM_BOT_USERNAME, payload)
+      : TELEGRAM_GROUP_URL;
+  const homeEntryHref = buildEntryHref(getHomeTelegramPayload());
 
   if (currentView.type === 'admin') {
     if (adminAuth.isChecking) {
@@ -315,11 +327,14 @@ export default function App() {
 
   if (currentView.type === 'model') {
     const showcaseModel = findModelByRouteSlug(siteContent.models, currentView.modelSlug);
+    const showcaseEntryHref = showcaseModel
+      ? buildEntryHref(getModelTelegramPayload(showcaseModel))
+      : TELEGRAM_GROUP_URL;
 
     return (
       <ModelShowcasePage
         model={showcaseModel}
-        ctaHref={TELEGRAM_GROUP_URL}
+        ctaHref={showcaseEntryHref}
         isLoading={isSiteLoading}
       />
     );
@@ -330,7 +345,7 @@ export default function App() {
       <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(168,85,247,0.3),transparent_55%)] blur-3xl" />
 
       <main className="relative">
-        <HeroSection ctaHref={TELEGRAM_GROUP_URL} backgroundSrc={heroBackgroundSrc} />
+        <HeroSection ctaHref={homeEntryHref} backgroundSrc={heroBackgroundSrc} />
 
         <div className="mx-auto max-w-[1440px] px-4 pb-14 sm:px-6 lg:px-8">
           <PreviewCarousel
@@ -340,7 +355,7 @@ export default function App() {
             description="A faixa mostra ate 7 videos e segue ate o CTA final."
             items={videoPreviewCards}
             emptyMessage="Nenhum video cadastrado ainda. Adicione videos pelo painel admin para preencher esta faixa."
-            ctaHref={TELEGRAM_GROUP_URL}
+            ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
           />
 
@@ -350,7 +365,7 @@ export default function App() {
             description="A segunda faixa mostra ate 10 imagens e termina no mesmo fluxo de entrada."
             items={imagePreviewCards}
             emptyMessage="Nenhuma imagem cadastrada ainda. Adicione imagens pelo painel admin para preencher esta faixa."
-            ctaHref={TELEGRAM_GROUP_URL}
+            ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
             variant="portrait"
           />
@@ -394,7 +409,7 @@ export default function App() {
               </div>
 
               <TelegramCTA
-                href={TELEGRAM_GROUP_URL}
+                href={homeEntryHref}
                 label="Entrar no Grupo VIP"
                 className="mt-6 w-full sm:w-auto"
               />
@@ -406,7 +421,11 @@ export default function App() {
       <ModelModal
         model={selectedModel}
         onClose={() => setSelectedModelId(null)}
-        ctaHref={TELEGRAM_GROUP_URL}
+        ctaHref={
+          selectedModel
+            ? buildEntryHref(getModelTelegramPayload(selectedModel))
+            : TELEGRAM_GROUP_URL
+        }
       />
     </div>
   );
