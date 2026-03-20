@@ -7,6 +7,17 @@ function toText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function logBot(message, details) {
+  const timestamp = new Date().toISOString();
+
+  if (details === undefined) {
+    console.log(`[bot ${timestamp}] ${message}`);
+    return;
+  }
+
+  console.log(`[bot ${timestamp}] ${message}`, details);
+}
+
 function sanitizeModelSlug(value) {
   return toText(value)
     .normalize('NFD')
@@ -499,6 +510,14 @@ async function sendModelDetails(token, chatId, model, options) {
   const caption = buildModelCaption(model);
   const replyMarkup = buildModelKeyboard(model, options.siteUrl, options.groupUrl);
   const mediaPreview = getRandomModelMediaSelection(model);
+  const selectedSummary = mediaPreview.map((item) => item.type).join(', ');
+
+  logBot('Enviando previas da modelo.', {
+    chatId,
+    model: model.name,
+    totalMidias: mediaPreview.length,
+    selecao: selectedSummary,
+  });
 
   await sendText(
     token,
@@ -575,12 +594,23 @@ async function handleMessage(token, message, readSiteContent, options) {
   const normalizedCommand = command.toLowerCase();
   const startPayload = args.join(' ');
 
+  logBot('Mensagem recebida.', {
+    chatId,
+    command: normalizedCommand,
+    payload: startPayload,
+  });
+
   if (normalizedCommand === '/start') {
     const referencedModel = startPayload
       ? findModelByInput(siteContent.models, startPayload.replace(/^ref[:-]/i, ''))
       : null;
 
     if (referencedModel) {
+      logBot('Referencia identificada no /start.', {
+        chatId,
+        payload: startPayload,
+        model: referencedModel.name,
+      });
       return sendModelDetails(token, chatId, referencedModel, options);
     }
 
@@ -618,6 +648,10 @@ async function handleMessage(token, message, readSiteContent, options) {
     const model = findModelByInput(siteContent.models, query);
 
     if (!model) {
+      logBot('Modelo nao encontrada para comando /modelo.', {
+        chatId,
+        query,
+      });
       return sendText(
         token,
         chatId,
@@ -625,6 +659,11 @@ async function handleMessage(token, message, readSiteContent, options) {
       );
     }
 
+    logBot('Modelo encontrada para comando /modelo.', {
+      chatId,
+      query,
+      model: model.name,
+    });
     return sendModelDetails(token, chatId, model, options);
   }
 
@@ -656,6 +695,11 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
 
   const siteContent = await readSiteContent();
 
+  logBot('Callback recebido.', {
+    chatId,
+    data,
+  });
+
   if (data === 'list-models') {
     await answerCallbackQuery(token, callbackId);
     return sendModelList(token, chatId, siteContent, options.siteUrl);
@@ -665,10 +709,19 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     const model = findModelByInput(siteContent.models, data.replace(/^model:/, ''));
 
     if (!model) {
+      logBot('Modelo nao encontrada para callback.', {
+        chatId,
+        data,
+      });
       await answerCallbackQuery(token, callbackId, 'Modelo nao encontrada.');
       return;
     }
 
+    logBot('Modelo encontrada para callback.', {
+      chatId,
+      data,
+      model: model.name,
+    });
     await answerCallbackQuery(token, callbackId);
     return sendModelDetails(token, chatId, model, options);
   }
@@ -704,6 +757,12 @@ export function startTelegramBot({
     resolveLocalAssetPath,
     telegramFileCache,
   };
+
+  logBot('Bot inicializado.', {
+    siteUrl: options.siteUrl,
+    groupUrl: options.groupUrl,
+    cacheAtivo: Boolean(cacheFilePath),
+  });
 
   async function processUpdate(update) {
     if (update.message) {

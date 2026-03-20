@@ -753,6 +753,19 @@ app.get('/api/site-content', async (_req, res) => {
   res.json({ siteContent });
 });
 
+app.get('/api/health', async (_req, res) => {
+  const siteContent = await readSiteContent();
+
+  res.json({
+    ok: true,
+    botEnabled: telegramBotToken.length > 0,
+    models: siteContent.models.length,
+    uploadedHeroBackgrounds:
+      siteContent.heroBackgrounds.mobile.length + siteContent.heroBackgrounds.desktop.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.put('/api/site-content', requireAdminAuth, async (req, res) => {
   const siteContent = await writeSiteContent(req.body);
   res.json({ siteContent });

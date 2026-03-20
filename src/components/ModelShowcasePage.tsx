@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { getPreviewCardsForModelByType } from '../data/models';
 import { getHomePath } from '../lib/modelRoute';
 import type { ModelProfile } from '../types';
+import { BrandMark } from './BrandMark';
 import { MediaPreviewRail } from './MediaPreviewRail';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -51,9 +52,7 @@ export function ModelShowcasePage({
       <div className="min-h-screen bg-ink text-white">
         <div className="fixed inset-0 bg-black" />
         <div className="relative mx-auto flex min-h-screen max-w-[1440px] flex-col items-center justify-center px-4 text-center">
-          <span className="font-display text-sm font-semibold uppercase tracking-[0.32em] text-white/90">
-            AllPrivacy
-          </span>
+          <BrandMark />
           <div className="mt-8 h-11 w-11 animate-spin rounded-full border-2 border-white/15 border-t-white/80" />
         </div>
       </div>
@@ -103,12 +102,7 @@ export function ModelShowcasePage({
             className="flex justify-center px-4 py-5"
             style={{ paddingTop: 'max(env(safe-area-inset-top), 1.25rem)' }}
           >
-            <a
-              href={getHomePath()}
-              className="font-display text-sm font-semibold uppercase tracking-[0.32em] text-white/90 transition hover:text-white"
-            >
-              AllPrivacy
-            </a>
+            <BrandMark href={getHomePath()} />
           </div>
 
           <header className="pt-6 sm:pt-8">

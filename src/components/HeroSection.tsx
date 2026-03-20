@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { scrollToTarget } from '../lib/scrollToTarget';
+import { BrandMark } from './BrandMark';
 import { ChevronDownIcon } from './icons';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -113,9 +114,7 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
         className="absolute inset-x-0 top-0 z-10 flex justify-center px-4 py-5"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 1.25rem)' }}
       >
-        <span className="font-display text-sm font-semibold uppercase tracking-[0.32em] text-white/90">
-          AllPrivacy
-        </span>
+        <BrandMark />
       </div>
 
       <div
