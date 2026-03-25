@@ -5,6 +5,8 @@ import path from 'node:path';
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createBillingStore } from './billing-store.mjs';
+import { createSyncPayClient } from './syncpay-client.mjs';
 import { startTelegramBot } from './telegram-bot.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,12 +15,36 @@ const projectRoot = path.resolve(__dirname, '..');
 const storageDir = path.join(projectRoot, 'storage');
 const uploadsDir = path.join(storageDir, 'uploads');
 const siteContentPath = path.join(storageDir, 'site-content.json');
+const billingStatePath = path.join(storageDir, 'billing-state.json');
 const telegramFileCachePath = path.join(storageDir, 'telegram-file-cache.json');
 const distDir = path.join(projectRoot, 'dist');
 const port = Number(process.env.PORT || 3001);
 const sitePublicUrl = process.env.SITE_PUBLIC_URL || `http://localhost:${port}`;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
 const telegramGroupUrl = process.env.TELEGRAM_GROUP_URL || sitePublicUrl;
+const telegramPrivateGroupChatId = process.env.TELEGRAM_PRIVATE_GROUP_CHAT_ID || '';
+const syncPayApiKey = process.env.SYNC_PAY_API_KEY || '';
+const syncPayApiKeyBase64 = process.env.SYNC_PAY_API_KEY_BASE64 || '';
+const syncPayClientId = process.env.SYNC_PAY_CLIENT_ID || '';
+const syncPayClientSecret = process.env.SYNC_PAY_CLIENT_SECRET || '';
+const syncPayBaseUrl = process.env.SYNC_PAY_BASE_URL || 'https://api.syncpay.pro';
+const syncPayWebhookSecret = process.env.SYNC_PAY_WEBHOOK_SECRET || '';
+const syncPayWebhookUrl =
+  process.env.SYNC_PAY_WEBHOOK_URL ||
+  `${sitePublicUrl.replace(/\/+$/, '')}/api/payments/syncpay/webhook${
+    syncPayWebhookSecret
+      ? `?secret=${encodeURIComponent(syncPayWebhookSecret)}`
+      : ''
+  }`;
+const syncPayTestAmount = Number(process.env.SYNC_PAY_TEST_AMOUNT || 0.05);
+const syncPayTestCustomerName = process.env.SYNC_PAY_TEST_CUSTOMER_NAME || '';
+const syncPayTestCustomerEmail = process.env.SYNC_PAY_TEST_CUSTOMER_EMAIL || '';
+const syncPayTestCustomerCpf = process.env.SYNC_PAY_TEST_CUSTOMER_CPF || '';
+const syncPayTestCustomerPhone = process.env.SYNC_PAY_TEST_CUSTOMER_PHONE || '';
+const subscriptionDurationSeconds = Number(
+  process.env.SUBSCRIPTION_DURATION_SECONDS || 30 * 24 * 60 * 60,
+);
+const subscriptionDurationMs = Math.max(1, subscriptionDurationSeconds) * 1000;
 const adminCookieName = 'allprivacy_admin';
 const adminUsername = 'well69xnx';
 const adminPassword = 'Download';
@@ -45,6 +71,14 @@ const accentPairs = [
 
 function createId(prefix) {
   return `${prefix}-${randomUUID()}`;
+}
+
+function formatCurrencyBRL(amount) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+  }).format(Number(amount || 0));
 }
 
 function cloneDefaultSiteContent() {
@@ -125,6 +159,16 @@ function requireAdminAuth(req, res, next) {
   }
 
   next();
+}
+
+function hasValidPaymentSecret(req) {
+  const secret = toText(req.query?.secret);
+
+  if (!syncPayWebhookSecret) {
+    return true;
+  }
+
+  return secret === syncPayWebhookSecret;
 }
 
 function sanitizeFilename(originalName, mimeType) {
@@ -685,6 +729,15 @@ async function writeSiteContent(content) {
   return normalized;
 }
 
+const billingStore = createBillingStore(billingStatePath);
+const syncPayClient = createSyncPayClient({
+  apiKey: syncPayApiKey,
+  apiKeyBase64: syncPayApiKeyBase64,
+  clientId: syncPayClientId,
+  clientSecret: syncPayClientSecret,
+  baseUrl: syncPayBaseUrl,
+});
+
 const upload = multer({
   storage: multer.diskStorage({
     destination(req, file, callback) {
@@ -759,11 +812,31 @@ app.get('/api/health', async (_req, res) => {
   res.json({
     ok: true,
     botEnabled: telegramBotToken.length > 0,
+    paymentEnabled: syncPayClient.enabled && syncPayTestAmount > 0,
+    inviteDeliveryMode: telegramPrivateGroupChatId ? 'private-invite' : 'static-group-link',
     models: siteContent.models.length,
     uploadedHeroBackgrounds:
       siteContent.heroBackgrounds.mobile.length + siteContent.heroBackgrounds.desktop.length,
     timestamp: new Date().toISOString(),
   });
+});
+
+app.post('/api/payments/syncpay/webhook', async (req, res) => {
+  if (!hasValidPaymentSecret(req)) {
+    res.status(401).json({ ok: false, message: 'Webhook Syncpay sem segredo valido.' });
+    return;
+  }
+
+  try {
+    const result = await telegramBot.handlePaymentWebhook(req.body ?? {});
+    res.json({ ok: true, result });
+  } catch (error) {
+    console.error('Falha ao processar webhook Syncpay:', error);
+    res.status(500).json({
+      ok: false,
+      message: error instanceof Error ? error.message : 'Falha ao processar webhook Syncpay.',
+    });
+  }
 });
 
 app.put('/api/site-content', requireAdminAuth, async (req, res) => {
@@ -802,6 +875,7 @@ try {
 }
 
 await ensureStorage();
+await billingStore.ensureStorage();
 const migratedSiteContent = await migrateSiteContentFiles(await readSiteContent());
 await writeSiteContent(migratedSiteContent);
 await moveLooseRootUploadsToLegacy();
@@ -813,6 +887,20 @@ const telegramBot = startTelegramBot({
   groupUrl: telegramGroupUrl,
   resolveLocalAssetPath: resolveLocalUploadPath,
   cacheFilePath: telegramFileCachePath,
+  billingStore,
+  paymentClient: syncPayClient,
+  paymentConfig: {
+    amount: syncPayTestAmount,
+    durationMs: subscriptionDurationMs,
+    privateGroupChatId: telegramPrivateGroupChatId,
+    webhookUrl: syncPayWebhookUrl,
+    testCustomer: {
+      name: syncPayTestCustomerName,
+      email: syncPayTestCustomerEmail,
+      cpf: syncPayTestCustomerCpf,
+      phone: syncPayTestCustomerPhone,
+    },
+  },
 });
 
 app.listen(port, () => {
@@ -820,6 +908,12 @@ app.listen(port, () => {
 
   if (telegramBot.enabled) {
     console.log('Bot Telegram iniciado com integracao ao conteudo do site.');
+
+    if (syncPayClient.enabled) {
+      console.log(`Syncpay habilitado para Pix de teste em ${formatCurrencyBRL(syncPayTestAmount)}.`);
+    } else {
+      console.log('Syncpay desativado. Defina SYNC_PAY_API_KEY para liberar pagamentos.');
+    }
   } else {
     console.log(
       'Bot Telegram desativado. Defina TELEGRAM_BOT_TOKEN para ativar a integracao.',

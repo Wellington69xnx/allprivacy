@@ -29,3 +29,4 @@ dist-ssr
 storage/uploads/*
 !storage/uploads/.gitkeep
 storage/telegram-file-cache.json
+storage/billing-state.json

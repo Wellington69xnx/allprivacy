@@ -23,8 +23,8 @@
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203%203.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%203%203.mp4"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4"
         },
         {
           "id": "media-1773820051595-mbwsv6f5",
@@ -38,14 +38,14 @@
           "type": "image",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%203.png"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%204.png"
         },
         {
           "id": "media-1773820051595-ohscmr6d",
           "type": "image",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%204.png"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%202.png"
         }
       ]
     },
@@ -72,16 +72,16 @@
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4"
         },
         {
           "id": "media-1773822211403-pnwrelgi",
           "type": "video",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4"
         },
         {
           "id": "media-1773822261620-hvdxunbe",
@@ -95,14 +95,14 @@
           "type": "image",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%203.png"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%204.png"
         },
         {
           "id": "media-1773822261620-ezuekbkl",
           "type": "image",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%204.png"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%202.png"
         },
         {
           "id": "media-1773822261620-46o7frpj",
@@ -136,8 +136,8 @@
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/yan/Yan%20video%203%203.mp4",
-          "src": "/uploads/yan/Yan%20video%203%203.mp4"
+          "thumbnail": "/uploads/yan/Yan%20video%203%202.mp4",
+          "src": "/uploads/yan/Yan%20video%203%202.mp4"
         }
       ]
     },
@@ -176,7 +176,7 @@
       {
         "id": "hero-1773819990454-z82abytl",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203%203.png",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203%202.png",
         "target": "mobile"
       }
     ],
@@ -190,7 +190,7 @@
       {
         "id": "hero-e66db89e-0bfd-499e-8758-18dfa0db8f5d",
         "title": "",
-        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203%203.jpeg",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203%202.jpeg",
         "target": "desktop"
       }
     ]
