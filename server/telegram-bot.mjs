@@ -1401,15 +1401,28 @@ async function sendPreviewMediaSelection(
   }
 }
 
+function applyTelegramRichText(text, parseMode) {
+  const content = typeof text === 'string' ? text : '';
+
+  if (!content || parseMode !== 'HTML') {
+    return content;
+  }
+
+  return content
+    .replace(/\*([^*\n][\s\S]*?)\*/g, '<b>$1</b>')
+    .replace(/_([^_\n][\s\S]*?)_/g, '<i>$1</i>')
+    .replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+}
+
 async function sendText(token, chatId, text, extra = {}) {
   const {
-    parseMode = 'Markdown',
+    parseMode = 'HTML',
     disableWebPagePreview = true,
     ...rest
   } = extra;
   const payload = {
     chat_id: chatId,
-    text,
+    text: applyTelegramRichText(text, parseMode),
     disable_web_page_preview: disableWebPagePreview,
     ...rest,
   };
@@ -1423,14 +1436,14 @@ async function sendText(token, chatId, text, extra = {}) {
 
 async function editMessageText(token, chatId, messageId, text, extra = {}) {
   const {
-    parseMode = null,
+    parseMode = 'HTML',
     disableWebPagePreview = true,
     ...rest
   } = extra;
   const payload = {
     chat_id: chatId,
     message_id: messageId,
-    text,
+    text: applyTelegramRichText(text, parseMode),
     disable_web_page_preview: disableWebPagePreview,
     ...rest,
   };
@@ -1464,8 +1477,8 @@ async function sendPhoto(
     const result = await telegramMultipartRequest(token, 'sendPhoto', async (formData) => {
       formData.append('chat_id', String(chatId));
       if (caption) {
-        formData.append('caption', caption);
-        formData.append('parse_mode', 'Markdown');
+        formData.append('caption', applyTelegramRichText(caption, 'HTML'));
+        formData.append('parse_mode', 'HTML');
       }
       formData.append('photo', await createUploadBlob(photoSource.filePath), photoSource.filename);
 
@@ -1484,8 +1497,8 @@ async function sendPhoto(
       photo: photoSource?.value,
       ...(caption
         ? {
-            caption,
-            parse_mode: 'Markdown',
+            caption: applyTelegramRichText(caption, 'HTML'),
+            parse_mode: 'HTML',
           }
         : {}),
       ...extra,
@@ -1524,8 +1537,8 @@ async function sendPhotoBuffer(token, chatId, buffer, filename, caption, extra =
     formData.append('chat_id', String(chatId));
 
     if (caption) {
-      formData.append('caption', caption);
-      formData.append('parse_mode', 'Markdown');
+      formData.append('caption', applyTelegramRichText(caption, 'HTML'));
+      formData.append('parse_mode', 'HTML');
     }
 
     formData.append('photo', new Blob([buffer]), filename);
@@ -1550,8 +1563,8 @@ async function sendVideo(
     const result = await telegramMultipartRequest(token, 'sendVideo', async (formData) => {
       formData.append('chat_id', String(chatId));
       if (caption) {
-        formData.append('caption', caption);
-        formData.append('parse_mode', 'Markdown');
+        formData.append('caption', applyTelegramRichText(caption, 'HTML'));
+        formData.append('parse_mode', 'HTML');
       }
       formData.append('supports_streaming', 'true');
       formData.append('video', await createUploadBlob(videoSource.filePath), videoSource.filename);
@@ -1572,8 +1585,8 @@ async function sendVideo(
       supports_streaming: true,
       ...(caption
         ? {
-            caption,
-            parse_mode: 'Markdown',
+            caption: applyTelegramRichText(caption, 'HTML'),
+            parse_mode: 'HTML',
           }
         : {}),
       ...extra,
@@ -2562,7 +2575,7 @@ async function createOrReusePixPayment(
   const selectedPlan = getPaymentPlan(options, planId);
 
   if (!options.paymentConfig.enabled || !selectedPlan) {
-    return sendPlainText(
+    return sendText(
       token,
       chatId,
       'Os pagamentos por Pix ainda nao estao configurados. Defina a API ou ative o modo de teste para liberar este fluxo.',
@@ -3513,20 +3526,21 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     await answerCallbackQuery(token, callbackId);
     await sendSitewidePreviews(token, chatId, siteContent, options);
 
+    const previewUpsellText =
+      '\u{1F513} <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>\u{1F48E} Privacy, OnlyFans, XvideosRED, CloseFriends, TelegramVIP\n\u{1F48E} Cornos/Hotwife\n\u{1F48E} AmadorVIP\n\u{1F48E} Sexo em P\u00FAblico\n\u{1F48E} Famosinhas Vazadas\n\u{1F48E} C\u00E2meras Escondidas\n\u{1F48E} Atualiza\u00E7\u00F5es Di\u00E1rias\n\u{1F48E} Todo conte\u00FAdo separado por t\u00F3picos</i>\n\n\u{1F680} Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM S\u00D3 LUGAR!</b>';
+
     if (!previewResult.usage.canUse) {
-      return sendPlainText(token, chatId, '🌐 Acesse o site para mais previas.', {
-        reply_markup: await buildStartKeyboardForChat(chatId, options),
+      await sendText(token, chatId, previewUpsellText);
+      return sendPlainText(token, chatId, '\u{1F310} Acesse o site para mais pr\u00E9vias.', {
+        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais previas'),
       });
     }
 
-    return sendPlainText(
-      token,
-      chatId,
-      '🔓 _Tenha acesso completo e imediato entrando em nosso grupo VIP._\n\n💎 - Privacy, OnlyFans, XvideosRED, CloseFriends, TelegramVIP \n💎 - Cornos/Hotwife\n💎 - AmadorVIP\n💎 - Sexo em Público\n💎 - Famosinhas Vazadas\n💎 - Câmeras Escondidas\n💎 - Atualizações Diárias\n💎 - Todo conteúdo separado por tópicos\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a TUDO EM UM SÓ LUGAR!',
-      {
+    await sendText(token, chatId, previewUpsellText, {
       reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais previas'),
-      },
-    );
+    });
+
+    return null;
   }
 
   if (data.startsWith('model:')) {
