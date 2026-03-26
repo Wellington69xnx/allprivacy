@@ -1,4 +1,5 @@
 import { getModelRouteSlug, sanitizeModelSlug } from './modelRoute';
+import type { SubscriptionPlanId } from './subscriptionPlans';
 import type { ModelProfile } from '../types';
 
 function normalizeBotUsername(value: string) {
@@ -8,6 +9,17 @@ function normalizeBotUsername(value: string) {
 function getSafePayload(value: string) {
   const normalized = sanitizeModelSlug(value).slice(0, 48);
   return normalized || 'home';
+}
+
+function buildTelegramPayload(target: string, planId?: SubscriptionPlanId) {
+  const safeTarget = getSafePayload(target);
+  const normalizedPlanId = planId === '7d' || planId === '30d' ? planId : '';
+
+  if (!normalizedPlanId) {
+    return safeTarget;
+  }
+
+  return `plan-${normalizedPlanId}-${safeTarget}`;
 }
 
 export function getTelegramEntryUrl(botUsername: string, payload: string) {
@@ -22,17 +34,20 @@ export function getTelegramEntryUrl(botUsername: string, payload: string) {
   )}`;
 }
 
-export function getHomeTelegramPayload() {
+export function getHomeTelegramPayload(planId?: SubscriptionPlanId) {
   if (typeof window === 'undefined') {
-    return 'home';
+    return buildTelegramPayload('home', planId);
   }
 
   const params = new URLSearchParams(window.location.search);
   const ref = params.get('ref') || params.get('utm_content') || params.get('model');
 
-  return getSafePayload(ref || 'home');
+  return buildTelegramPayload(ref || 'home', planId);
 }
 
-export function getModelTelegramPayload(model: Pick<ModelProfile, 'id' | 'name' | 'handle'>) {
-  return getSafePayload(getModelRouteSlug(model));
+export function getModelTelegramPayload(
+  model: Pick<ModelProfile, 'id' | 'name' | 'handle'>,
+  planId?: SubscriptionPlanId,
+) {
+  return buildTelegramPayload(getModelRouteSlug(model), planId);
 }

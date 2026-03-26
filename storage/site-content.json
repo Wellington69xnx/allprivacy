@@ -15,37 +15,73 @@
           "type": "video",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%203.mp4"
-        },
-        {
-          "id": "media-1773820040468-u68fr0nq",
-          "type": "video",
-          "title": "Previa 2",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%203%202.mp4"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%205.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%205.mp4"
         },
         {
           "id": "media-1773820051595-mbwsv6f5",
           "type": "image",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204.png"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208.png"
         },
         {
           "id": "media-1773820051595-4wra7uh1",
           "type": "image",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%204.png"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208%204.png"
         },
         {
           "id": "media-1773820051595-ohscmr6d",
           "type": "image",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%204%202.png"
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208%202.png"
+        },
+        {
+          "id": "media-9db42b19-beaa-4a7b-b73b-ae387ce47081",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208.jpeg"
+        },
+        {
+          "id": "media-4c0aebc8-9e00-4592-a644-90d76477e4f6",
+          "type": "image",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208.jpg"
+        },
+        {
+          "id": "media-152625fc-20d5-4b18-8ca1-a750db3896c1",
+          "type": "image",
+          "title": "Previa 3",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208%203.jpeg"
+        },
+        {
+          "id": "media-15d2a2ee-215c-4c6f-9c8e-be9e85ab9c98",
+          "type": "image",
+          "title": "Previa 4",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%208%203.jpg"
+        },
+        {
+          "id": "media-e39f9c7b-d085-4d61-9368-b95632de9071",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%205.mov",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%205.mov"
+        },
+        {
+          "id": "media-497ac728-1461-4730-8616-1b191e949686",
+          "type": "video",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%205%203.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%205%203.mp4"
         }
       ]
     },
@@ -72,16 +108,16 @@
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%204.mp4"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4"
         },
         {
           "id": "media-1773822211403-pnwrelgi",
           "type": "video",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%202.mp4"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4",
+          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%204%203.mp4"
         },
         {
           "id": "media-1773822261620-hvdxunbe",
@@ -95,14 +131,14 @@
           "type": "image",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%204.png"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%202.png"
         },
         {
           "id": "media-1773822261620-ezuekbkl",
           "type": "image",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%202.png"
+          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%205%203.png"
         },
         {
           "id": "media-1773822261620-46o7frpj",
@@ -170,13 +206,19 @@
       {
         "id": "hero-1773819979556-fz8a6giu",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203.png",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%204.png",
         "target": "mobile"
       },
       {
         "id": "hero-1773819990454-z82abytl",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%203%202.png",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%204%203.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-b1b7648e-4e90-4868-9119-3ee88f309e7f",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%204.jpg",
         "target": "mobile"
       }
     ],
@@ -191,6 +233,12 @@
         "id": "hero-e66db89e-0bfd-499e-8758-18dfa0db8f5d",
         "title": "",
         "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203%202.jpeg",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-27730523-e506-48f0-9786-ff68858c85de",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%203.jpeg",
         "target": "desktop"
       }
     ]

@@ -1,17 +1,18 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
+import type { SubscriptionPlanLink } from '../lib/subscriptionPlans';
 import type { ModelProfile } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { CloseIcon } from './icons';
-import { TelegramCTA } from './TelegramCTA';
+import { PlanOptions } from './PlanOptions';
 
 interface ModelModalProps {
   model: ModelProfile | null;
   onClose: () => void;
-  ctaHref: string;
+  planOptions: SubscriptionPlanLink[];
 }
 
-export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
+export function ModelModal({ model, onClose, planOptions }: ModelModalProps) {
   useEffect(() => {
     if (!model) {
       return;
@@ -118,14 +119,10 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
 
                   <div className="mt-6 rounded-[28px] border border-white/10 bg-gradient-to-r from-white/[0.08] to-white/[0.03] p-4 md:p-5">
                     <p className="text-sm leading-6 text-zinc-300">
-                      Essa aba ja mostra previas liberadas. O CTA final continua aqui so
-                      para conduzir a pessoa ao grupo completo sem quebrar a experiencia.
+                      Essa aba ja mostra previas liberadas. Escolha abaixo o plano de
+                      7 dias por R$ 9,99 ou o de 30 dias por R$ 19,99 para continuar no bot.
                     </p>
-                    <TelegramCTA
-                      href={ctaHref}
-                      label={`Entrar para ver mais de ${model.name.split(' ')[0]}`}
-                      className="mt-4 w-full sm:w-auto"
-                    />
+                    <PlanOptions plans={planOptions} className="mt-4" compact />
                   </div>
                 </div>
               </div>

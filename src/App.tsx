@@ -6,13 +6,14 @@ import { HeroSection } from './components/HeroSection';
 import { ModelModal } from './components/ModelModal';
 import { ModelShowcasePage } from './components/ModelShowcasePage';
 import { ModelsStories } from './components/ModelsStories';
+import { PlanOptions } from './components/PlanOptions';
 import { PreviewCarousel } from './components/PreviewCarousel';
-import { TelegramCTA } from './components/TelegramCTA';
 import { TelegramProof } from './components/TelegramProof';
 import { getRandomPreviewCardsByType, heroBackdrop } from './data/models';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import { useSiteContent } from './hooks/useSiteContent';
 import { findModelByRouteSlug, getAdminPath, getHomePath } from './lib/modelRoute';
+import { subscriptionPlans } from './lib/subscriptionPlans';
 import {
   getHomeTelegramPayload,
   getModelTelegramPayload,
@@ -297,6 +298,16 @@ export default function App() {
       ? getTelegramEntryUrl(TELEGRAM_BOT_USERNAME, payload)
       : TELEGRAM_GROUP_URL;
   const homeEntryHref = buildEntryHref(getHomeTelegramPayload());
+  const homePlanOptions = subscriptionPlans.map((plan) => ({
+    ...plan,
+    href: buildEntryHref(getHomeTelegramPayload(plan.id)),
+  }));
+  const selectedModelPlanOptions = selectedModel
+    ? subscriptionPlans.map((plan) => ({
+        ...plan,
+        href: buildEntryHref(getModelTelegramPayload(selectedModel, plan.id)),
+      }))
+    : [];
 
   if (currentView.type === 'admin') {
     if (adminAuth.isChecking) {
@@ -330,11 +341,18 @@ export default function App() {
     const showcaseEntryHref = showcaseModel
       ? buildEntryHref(getModelTelegramPayload(showcaseModel))
       : TELEGRAM_GROUP_URL;
+    const showcasePlanOptions = showcaseModel
+      ? subscriptionPlans.map((plan) => ({
+          ...plan,
+          href: buildEntryHref(getModelTelegramPayload(showcaseModel, plan.id)),
+        }))
+      : [];
 
     return (
       <ModelShowcasePage
         model={showcaseModel}
         ctaHref={showcaseEntryHref}
+        planOptions={showcasePlanOptions}
         isLoading={isSiteLoading}
       />
     );
@@ -387,14 +405,14 @@ export default function App() {
           >
             <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent p-6 shadow-neon">
               <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.26em] text-white/60">
-                CTA Final
+                Planos de acesso
               </span>
               <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Tudo pronto para converter com foco total no polegar e na urgencia.
+                Escolha o acesso que faz mais sentido para entrar no grupo VIP.
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-                A pagina entrega prova visual, ritmo de scroll e pontos de clique
-                estrategicos para transformar curiosidade em entrada no grupo.
+                Os planos comerciais ficam visiveis aqui de forma simples: 7 dias por
+                R$ 9,99 ou 30 dias por R$ 19,99, com entrada liberada pelo bot.
               </p>
 
               <div className="mt-5 flex flex-wrap gap-2">
@@ -408,11 +426,7 @@ export default function App() {
                 ))}
               </div>
 
-              <TelegramCTA
-                href={homeEntryHref}
-                label="Entrar no Grupo VIP"
-                className="mt-6 w-full sm:w-auto"
-              />
+              <PlanOptions plans={homePlanOptions} className="mt-6" />
             </div>
           </motion.section>
         </div>
@@ -421,11 +435,7 @@ export default function App() {
       <ModelModal
         model={selectedModel}
         onClose={() => setSelectedModelId(null)}
-        ctaHref={
-          selectedModel
-            ? buildEntryHref(getModelTelegramPayload(selectedModel))
-            : TELEGRAM_GROUP_URL
-        }
+        planOptions={selectedModelPlanOptions}
       />
     </div>
   );

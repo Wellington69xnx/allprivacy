@@ -146,6 +146,140 @@ function formatCurrencyBRL(amount) {
   }).format(Number(amount || 0));
 }
 
+function normalizePlanId(value) {
+  const normalized = toText(value).toLowerCase();
+
+  if (
+    normalized === '7' ||
+    normalized === '7d' ||
+    normalized === '7dia' ||
+    normalized === '7dias' ||
+    normalized === '7-dias'
+  ) {
+    return '7d';
+  }
+
+  if (
+    normalized === '30' ||
+    normalized === '30d' ||
+    normalized === '30dia' ||
+    normalized === '30dias' ||
+    normalized === '30-dias'
+  ) {
+    return '30d';
+  }
+
+  return normalized;
+}
+
+function getPaymentPlans(options) {
+  return Array.isArray(options?.paymentConfig?.plans) ? options.paymentConfig.plans : [];
+}
+
+function getDefaultPaymentPlan(options) {
+  const plans = getPaymentPlans(options);
+  const preferredPlanId = normalizePlanId(options?.paymentConfig?.defaultPlanId);
+
+  return (
+    plans.find((plan) => normalizePlanId(plan.id) === preferredPlanId) ||
+    plans[0] ||
+    null
+  );
+}
+
+function getPaymentPlan(options, planId) {
+  const normalizedPlanId = normalizePlanId(planId);
+  const plans = getPaymentPlans(options);
+
+  return (
+    plans.find((plan) => normalizePlanId(plan.id) === normalizedPlanId) ||
+    getDefaultPaymentPlan(options)
+  );
+}
+
+function getPaymentPlanForPayment(payment, options) {
+  return getPaymentPlan(options, payment?.planId);
+}
+
+function buildPlanBadge(plan) {
+  if (!plan) {
+    return '';
+  }
+
+  return `${plan.durationLabel} • ${formatCurrencyBRL(plan.displayAmount)}`;
+}
+
+function buildPaymentLabel(plan) {
+  return buildPlanBadge(plan);
+}
+
+function buildPaymentPlansList(options) {
+  const plans = getPaymentPlans(options);
+
+  return plans
+    .map((plan, index) => {
+      const marker = index === 0 ? '1️⃣' : index === 1 ? '2️⃣' : '•';
+      return `${marker} ${buildPlanBadge(plan)}`;
+    })
+    .join('\n');
+}
+
+function buildPaymentPlansIntro(options, title = '💎 Escolha seu plano:') {
+  const plansList = buildPaymentPlansList(options);
+
+  if (!plansList) {
+    return title;
+  }
+
+  return `${title}\n${plansList}`;
+}
+
+function parsePaymentActionPayload(value, prefix) {
+  const normalizedValue = toText(value).replace(new RegExp(`^${prefix}:`), '');
+  const [firstPart, ...remainingParts] = normalizedValue.split(':');
+  const normalizedPlanId = normalizePlanId(firstPart);
+
+  if (['7d', '30d'].includes(normalizedPlanId)) {
+    return {
+      planId: normalizedPlanId,
+      modelSlug: sanitizeModelSlug(remainingParts.join(':')) || 'home',
+    };
+  }
+
+  return {
+    planId: '',
+    modelSlug: sanitizeModelSlug(normalizedValue) || 'home',
+  };
+}
+
+function buildStartPayload(modelSlug = 'home', planId = '') {
+  const safeModelSlug = sanitizeModelSlug(modelSlug) || 'home';
+  const normalizedPlanId = normalizePlanId(planId);
+
+  if (!normalizedPlanId) {
+    return safeModelSlug;
+  }
+
+  return `plan-${normalizedPlanId}-${safeModelSlug}`;
+}
+
+function parseStartPayload(value) {
+  const normalizedValue = toText(value);
+  const planMatch = normalizedValue.match(/^plan-(7d|30d)-(.+)$/i);
+
+  if (planMatch) {
+    return {
+      planId: normalizePlanId(planMatch[1]),
+      target: sanitizeModelSlug(planMatch[2]) || 'home',
+    };
+  }
+
+  return {
+    planId: '',
+    target: sanitizeModelSlug(normalizedValue) || 'home',
+  };
+}
+
 function formatDateTimeBR(value) {
   const timestamp = Date.parse(value);
 
@@ -264,33 +398,92 @@ function mapPaymentStatusToLocal(status) {
   return normalizedStatus ? normalizedStatus.toLowerCase() : 'pending';
 }
 
-function buildPaymentLabel(paymentConfig) {
-  return `Pagar ${formatCurrencyBRL(paymentConfig.amount)}`;
+function getPreviewUsage(customer, previewWindowMs) {
+  const windowMs = Math.max(1000, Number(previewWindowMs || 0));
+  const windowStartedAt = Date.parse(toText(customer?.previewUsageWindowStartedAt));
+  const usageCount =
+    Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < windowMs
+      ? Math.max(0, Number(customer?.previewUsageCount || 0))
+      : 0;
+  const remaining = Math.max(0, 2 - usageCount);
+
+  return {
+    windowStartedAt: Number.isFinite(windowStartedAt) && Date.now() - windowStartedAt < windowMs
+      ? new Date(windowStartedAt).toISOString()
+      : '',
+    count: usageCount,
+    remaining,
+    canUse: remaining > 0,
+  };
 }
 
-function buildStartKeyboard(options) {
-  const rows = [[{ text: 'Ver modelos', callback_data: 'list-models' }]];
+function buildStartKeyboard(
+  options,
+  previewUsage = { canUse: true },
+  previewButtonLabel = 'Ver previas',
+  hasActiveAccess = false,
+  modelSlug = 'home',
+) {
+  const rows = [];
 
-  if (options.paymentConfig.enabled) {
-    rows.push([{ text: `${buildPaymentLabel(options.paymentConfig)} via Pix`, callback_data: 'pay:home' }]);
+  if (previewUsage.canUse) {
+    rows.push([{ text: `👀 ${previewButtonLabel}`, callback_data: 'show-previews' }]);
   }
 
-  rows.push([{ text: 'Abrir site', url: buildHomeUrl(options.siteUrl) }]);
+  if (options.paymentConfig.enabled) {
+    const plans = getPaymentPlans(options);
+
+    for (const plan of plans) {
+      rows.push([
+        {
+          text: `💳 ${buildPaymentLabel(plan)}`,
+          callback_data: `pay:${normalizePlanId(plan.id)}:${sanitizeModelSlug(modelSlug) || 'home'}`,
+        },
+      ]);
+    }
+  }
+
+  if (hasActiveAccess) {
+    rows.push([{ text: '🔓 Meu acesso', callback_data: 'my-access' }]);
+  }
+
+  rows.push([{ text: '🌐 Abrir site', url: buildHomeUrl(options.siteUrl) }]);
 
   return {
     inline_keyboard: rows,
   };
 }
 
+async function buildStartKeyboardForChat(
+  chatId,
+  options,
+  previewButtonLabel = 'Ver previas',
+  modelSlug = 'home',
+) {
+  const customer = await options.billingStore.getCustomer(chatId);
+  const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
+  return buildStartKeyboard(
+    options,
+    getPreviewUsage(customer, options.paymentConfig.previewUsageWindowMs),
+    previewButtonLabel,
+    Boolean(activeSubscription),
+    modelSlug,
+  );
+}
+
 function buildPaymentKeyboard(payment, paymentConfig) {
+  const normalizedPlanId = normalizePlanId(payment.planId) || normalizePlanId(paymentConfig.defaultPlanId) || '30d';
   const rows = [
-    [{ text: 'Ja paguei, verificar', callback_data: `verify:${payment.id}` }],
-    [{ text: 'Gerar novo Pix', callback_data: `repay:${payment.modelSlug || 'home'}` }],
-    [{ text: 'Cancelar', callback_data: `cancel:${payment.id}` }],
+    [{ text: '✅ Ja paguei, verificar', callback_data: `verify:${payment.id}` }],
+    ...(paymentConfig.simulationEnabled
+      ? [[{ text: '🧪 Simular pagamento', callback_data: `simulate-pay:${payment.id}` }]]
+      : []),
+    [{ text: '🔄 Gerar novo Pix', callback_data: `repay:${normalizedPlanId}:${payment.modelSlug || 'home'}` }],
+    [{ text: '❌ Cancelar', callback_data: `cancel:${payment.id}` }],
   ];
 
   if (payment.paymentLink) {
-    rows.unshift([{ text: 'Abrir cobranca', url: payment.paymentLink }]);
+    rows.unshift([{ text: '🧾 Abrir cobranca', url: payment.paymentLink }]);
   }
 
   return {
@@ -302,15 +495,28 @@ function buildAccessKeyboard(subscription, siteUrl) {
   const rows = [];
 
   if (subscription?.inviteLink) {
-    rows.push([{ text: 'Abrir grupo privado', url: subscription.inviteLink }]);
+    rows.push([{ text: '🔓 Entrar no grupo privado', url: subscription.inviteLink }]);
   }
 
-  rows.push([{ text: 'Abrir site', url: buildHomeUrl(siteUrl) }]);
+  rows.push([{ text: '🌐 Abrir site', url: buildHomeUrl(siteUrl) }]);
 
   return {
     inline_keyboard: rows,
   };
 }
+
+function buildSiteKeyboard(siteUrl) {
+  return {
+    inline_keyboard: [[{ text: '🌐 Abrir site', url: buildHomeUrl(siteUrl) }]],
+  };
+}
+
+const telegramBotCommands = [
+  { command: 'start', description: '🚀 Iniciar' },
+  { command: 'suporte', description: '🆘 Suporte' },
+  { command: 'assinatura', description: '🔓 Meu Acesso' },
+  { command: 'site', description: '🌐 Acessar Site' },
+];
 
 function shuffleArray(items) {
   const next = [...items];
@@ -374,6 +580,107 @@ function getRandomModelMediaSelection(model) {
   return selection.slice(0, 3);
 }
 
+function pickDistinctMedia(items, count, excludedModelSlugs = new Set()) {
+  const shuffledItems = shuffleArray(items);
+  const selected = [];
+  const usedModelSlugs = new Set(excludedModelSlugs);
+
+  for (const item of shuffledItems) {
+    if (selected.length >= count) {
+      break;
+    }
+
+    const modelSlug = toText(item.modelSlug);
+
+    if (modelSlug && usedModelSlugs.has(modelSlug)) {
+      continue;
+    }
+
+    selected.push(item);
+
+    if (modelSlug) {
+      usedModelSlugs.add(modelSlug);
+    }
+  }
+
+  if (selected.length >= count) {
+    return selected;
+  }
+
+  for (const item of shuffledItems) {
+    if (selected.length >= count) {
+      break;
+    }
+
+    if (selected.some((selectedItem) => selectedItem.id === item.id)) {
+      continue;
+    }
+
+    selected.push(item);
+  }
+
+  return selected;
+}
+
+function getRandomSitewideMediaSelection(siteContent) {
+  const models = Array.isArray(siteContent?.models) ? siteContent.models : [];
+  const videos = [];
+  const images = [];
+
+  for (const model of models) {
+    const modelSlug = getModelRouteSlug(model);
+    const gallery = Array.isArray(model.gallery) ? model.gallery : [];
+
+    for (const item of gallery) {
+      if (item.type === 'video' && toText(item.src)) {
+        videos.push({ ...item, modelSlug, modelName: model.name });
+      }
+
+      if (item.type === 'image' && toText(item.thumbnail)) {
+        images.push({ ...item, modelSlug, modelName: model.name });
+      }
+    }
+  }
+
+  const selectedVideos = pickDistinctMedia(videos, 2);
+  const selectedImages = pickDistinctMedia(
+    images,
+    1,
+    new Set(selectedVideos.map((item) => toText(item.modelSlug)).filter(Boolean)),
+  );
+
+  return [...selectedVideos, ...selectedImages];
+}
+
+async function consumePreviewUsage(chatId, options) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const currentUsage = getPreviewUsage(currentCustomer, options.paymentConfig.previewUsageWindowMs);
+
+  if (!currentUsage.canUse) {
+    return {
+      allowed: false,
+      usage: currentUsage,
+      customer: currentCustomer,
+    };
+  }
+
+  const nextWindowStartedAt = currentUsage.count > 0 && currentUsage.windowStartedAt
+    ? currentUsage.windowStartedAt
+    : new Date().toISOString();
+
+  const nextCustomer = await options.billingStore.upsertCustomer(chatId, {
+    previewUsageDate: '',
+    previewUsageCount: currentUsage.count + 1,
+    previewUsageWindowStartedAt: nextWindowStartedAt,
+  });
+
+  return {
+    allowed: true,
+    usage: getPreviewUsage(nextCustomer, options.paymentConfig.previewUsageWindowMs),
+    customer: nextCustomer,
+  };
+}
+
 function buildModelKeyboard(model, siteUrl, groupUrl) {
   const options =
     typeof siteUrl === 'object' && siteUrl !== null
@@ -389,12 +696,16 @@ function buildModelKeyboard(model, siteUrl, groupUrl) {
   const rows = [];
 
   if (options.paymentConfig?.enabled) {
-    rows.push([
-      {
-        text: `${buildPaymentLabel(options.paymentConfig)} por Pix`,
-        callback_data: `pay:${getModelRouteSlug(model)}`,
-      },
-    ]);
+    const plans = getPaymentPlans(options);
+
+    for (const plan of plans) {
+      rows.push([
+        {
+          text: `💳 ${buildPaymentLabel(plan)}`,
+          callback_data: `pay:${normalizePlanId(plan.id)}:${getModelRouteSlug(model)}`,
+        },
+      ]);
+    }
   }
 
   rows.push([
@@ -505,6 +816,18 @@ async function telegramMultipartRequest(token, method, buildFormData) {
   }
 
   return data.result;
+}
+
+async function configureTelegramCommands(token) {
+  await telegramRequest(token, 'setMyCommands', {
+    commands: telegramBotCommands,
+  });
+
+  await telegramRequest(token, 'setChatMenuButton', {
+    menu_button: {
+      type: 'commands',
+    },
+  });
 }
 
 async function pathExists(filePath) {
@@ -778,6 +1101,14 @@ async function deleteMessage(token, chatId, messageId) {
   });
 }
 
+async function editMessageReplyMarkup(token, chatId, messageId, replyMarkup) {
+  return telegramRequest(token, 'editMessageReplyMarkup', {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: replyMarkup,
+  });
+}
+
 function findModelByInput(models, input) {
   const normalizedInput = sanitizeModelSlug(input);
 
@@ -810,21 +1141,24 @@ async function sendActiveSubscriptionMessage(token, chatId, subscription, option
     return sendText(
       token,
       chatId,
-      'Voce ainda nao tem um acesso ativo. Gere o Pix para liberar o grupo privado.',
+      '🔐 Voce ainda nao tem um acesso ativo.\n\n💳 Gere o Pix para liberar sua entrada no grupo privado.',
       {
-        reply_markup: buildStartKeyboard(options),
+        reply_markup: await buildStartKeyboardForChat(chatId, options),
       },
     );
   }
 
-  const modelLine = subscription.modelName ? `Origem: ${subscription.modelName}\n` : '';
+  const modelLine = subscription.modelName ? `👤 Origem: ${subscription.modelName}\n` : '';
+  const planLine = subscription.planName
+    ? `💎 Plano: ${subscription.planName}${subscription.displayAmount ? ` • ${formatCurrencyBRL(subscription.displayAmount)}` : ''}\n`
+    : subscription.planDurationLabel
+      ? `💎 Plano: ${subscription.planDurationLabel}\n`
+      : '';
 
   return sendText(
     token,
     chatId,
-    `*Acesso ativo*\n\n${modelLine}Seu periodo fica liberado ate *${formatDateTimeBR(
-      subscription.expiresAt,
-    )}*.\n\nSe precisar, use o botao abaixo para entrar no grupo privado.`,
+    `🔓 *Meu acesso*\n\n${planLine}${modelLine}✅ Seu acesso ao grupo privado esta liberado.\n\n👇 Use o botao abaixo para entrar no grupo privado.`,
     {
       reply_markup: buildAccessKeyboard(subscription, options.siteUrl),
     },
@@ -873,6 +1207,7 @@ function decodeQrImageBuffer(paymentCodeBase64) {
 }
 
 async function sendPixInstructions(token, chatId, payment, options) {
+  const paymentPlan = getPaymentPlanForPayment(payment, options);
   const paymentCode =
     toText(payment.paymentCode) || decodePixCodeFromBase64(payment.paymentCodeBase64);
   const qrImageBuffer = decodeQrImageBuffer(payment.paymentCodeBase64);
@@ -881,10 +1216,14 @@ async function sendPixInstructions(token, chatId, payment, options) {
     : payment.dueAt
       ? formatDateTimeBR(payment.dueAt)
       : '';
-  const modelText = payment.modelName ? `\nModelo: ${payment.modelName}` : '';
-  const caption = `Pix gerado para *acesso temporario*.\nValor: *${formatCurrencyBRL(
-    payment.amount || options.paymentConfig.amount,
-  )}*\nPeriodo: *${options.paymentConfig.durationLabel}*${modelText}`;
+  const modelText = payment.modelName ? `\n👤 Modelo: ${payment.modelName}` : '';
+  const publicAmount = Number(payment.displayAmount || paymentPlan?.displayAmount || payment.amount || 0);
+  const publicDuration = toText(payment.planDurationLabel) || toText(paymentPlan?.durationLabel) || 'acesso VIP';
+  const planName = toText(payment.planName) || toText(paymentPlan?.name);
+  const planText = planName ? `\n💎 Plano: *${planName}*` : '';
+  const caption = `💳 Pix gerado para *acesso temporario*.\n💰 Valor: *${formatCurrencyBRL(
+    publicAmount,
+  )}*\n⏳ Periodo: *${publicDuration}*${planText}${modelText}`;
 
   const sentMessageIds = [];
 
@@ -909,10 +1248,10 @@ async function sendPixInstructions(token, chatId, payment, options) {
   }
 
   const lines = [
-    '<b>Pix copia e cola</b>',
+    '<b>📋 Pix copia e cola</b>',
     paymentCode ? `<code>${escapeHtml(paymentCode)}</code>` : 'A Syncpay nao retornou o codigo Pix.',
-    dueText ? `<b>Validade:</b> ${escapeHtml(dueText)}` : '',
-    '<b>O bot verifica automaticamente.</b> Se quiser, voce tambem pode tocar em "Ja paguei, verificar".',
+    dueText ? `<b>⏰ Validade:</b> ${escapeHtml(dueText)}` : '',
+    '<b>🤖 O bot verifica automaticamente.</b> Se quiser, voce tambem pode tocar em "Ja paguei, verificar".',
   ].filter(Boolean);
 
   const pixMessage = await sendHtmlText(token, chatId, lines.join('\n\n'), {
@@ -957,21 +1296,94 @@ async function deletePaymentMessages(token, payment, options) {
 
 async function createGroupInviteLink(token, payment, expiresAt, options) {
   const expirationTimestamp = Date.parse(expiresAt);
-  const fallbackExpiresAt = Math.floor((Date.now() + options.paymentConfig.durationMs) / 1000);
+  const paymentPlan = getPaymentPlanForPayment(payment, options);
+  const fallbackExpiresAt = Math.floor(
+    (Date.now() + Number(paymentPlan?.durationMs || options.paymentConfig.durationMs || 30000)) /
+      1000,
+  );
 
   return telegramRequest(token, 'createChatInviteLink', {
     chat_id: options.paymentConfig.privateGroupChatId,
     name: `AllPrivacy ${payment.id.slice(-8)}`,
-    member_limit: 1,
+    creates_join_request: true,
     expire_date: Number.isFinite(expirationTimestamp)
       ? Math.floor(expirationTimestamp / 1000)
       : fallbackExpiresAt,
   });
 }
 
+async function handleChatJoinRequest(token, joinRequest, options) {
+  const chatId = String(joinRequest?.chat?.id ?? '');
+  const telegramUserId = Number(joinRequest?.from?.id || 0);
+  const inviteLink = toText(joinRequest?.invite_link?.invite_link);
+
+  if (!chatId || !telegramUserId) {
+    return;
+  }
+
+  if (
+    !options.paymentConfig.privateGroupChatId ||
+    chatId !== String(options.paymentConfig.privateGroupChatId)
+  ) {
+    return;
+  }
+
+  const subscription = await options.billingStore.getActiveSubscriptionByTelegramUserId(telegramUserId);
+  const inviteMatches = !inviteLink || !subscription?.inviteLink || subscription.inviteLink === inviteLink;
+
+  if (subscription && inviteMatches) {
+    await telegramRequest(token, 'approveChatJoinRequest', {
+      chat_id: options.paymentConfig.privateGroupChatId,
+      user_id: telegramUserId,
+    });
+
+    logBot('Solicitacao de entrada aprovada.', {
+      chatId,
+      telegramUserId,
+      subscriptionId: subscription.id,
+    });
+
+    await sendPlainText(
+      token,
+      subscription.chatId,
+      `Entrada aprovada. Seu acesso fica liberado ate ${formatDateTimeBR(subscription.expiresAt)}.`,
+    );
+    return;
+  }
+
+  await telegramRequest(token, 'declineChatJoinRequest', {
+    chat_id: options.paymentConfig.privateGroupChatId,
+    user_id: telegramUserId,
+  });
+
+  logBot('Solicitacao de entrada recusada.', {
+    chatId,
+    telegramUserId,
+    motivo: subscription ? 'invite-mismatch' : 'no-active-subscription',
+  });
+
+  try {
+    await sendPlainText(
+      token,
+      telegramUserId,
+      '🚫 Nao encontrei um acesso ativo para liberar sua entrada agora.\n\n💳 Gere ou confirme o Pix no bot e tente novamente.',
+      {
+        reply_markup: await buildStartKeyboardForChat(telegramUserId, options),
+      },
+    );
+  } catch (error) {
+    logBot('Nao foi possivel avisar usuario sobre entrada recusada.', {
+      chatId,
+      telegramUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function finalizeApprovedPayment(token, payment, options, origin) {
   let currentPayment = payment;
   const nowIso = new Date().toISOString();
+  const paymentPlan = getPaymentPlanForPayment(currentPayment, options);
 
   if (!currentPayment) {
     return null;
@@ -992,9 +1404,13 @@ async function finalizeApprovedPayment(token, payment, options, origin) {
       chatId: currentPayment.chatId,
       telegramUserId: currentPayment.telegramUserId,
       paymentId: currentPayment.id,
+      planId: currentPayment.planId,
+      planName: currentPayment.planName || paymentPlan?.name,
+      planDurationLabel: currentPayment.planDurationLabel || paymentPlan?.durationLabel,
+      displayAmount: currentPayment.displayAmount || paymentPlan?.displayAmount,
       modelSlug: currentPayment.modelSlug,
       modelName: currentPayment.modelName,
-      durationMs: options.paymentConfig.durationMs,
+      durationMs: Number(paymentPlan?.durationMs || 30_000),
       inviteLink: '',
       inviteLinkExpiresAt: '',
     });
@@ -1048,7 +1464,7 @@ async function finalizeApprovedPayment(token, payment, options, origin) {
         await sendPlainText(
           token,
           currentPayment.chatId,
-          'Pagamento confirmado, mas nao consegui gerar o link do grupo agora. Toque em "Ja paguei, verificar" novamente em alguns segundos.',
+          '✅ Pagamento confirmado, mas nao consegui gerar o link do grupo agora.\n\nToque em "Ja paguei, verificar" novamente em alguns segundos.',
         );
       }
 
@@ -1080,8 +1496,10 @@ async function finalizeApprovedPayment(token, payment, options, origin) {
     await sendText(
       token,
       currentPayment.chatId,
-      `*Pagamento aprovado*\n\nSeu acesso ao grupo privado foi liberado por *${options.paymentConfig.durationLabel}*.\nValidade atual: *${formatDateTimeBR(
-        subscription.expiresAt,
+      `✅ *Pagamento aprovado*\n\n🔓 Seu acesso ao grupo privado foi liberado no plano *${toText(
+        currentPayment.planName || paymentPlan?.name || currentPayment.planDurationLabel || paymentPlan?.durationLabel,
+      )}*.\n💰 Valor do plano: *${formatCurrencyBRL(
+        Number(currentPayment.displayAmount || paymentPlan?.displayAmount || 0),
       )}*.`,
       {
         reply_markup: buildAccessKeyboard(
@@ -1141,9 +1559,9 @@ async function cancelPendingPayment(token, chatId, paymentId, options, callbackI
   return sendPlainText(
     token,
     chatId,
-    'Pix cancelado. Quando quiser, gere uma nova cobranca.',
+    '❌ Pix cancelado.\n\nQuando quiser, gere uma nova cobranca.',
     {
-      reply_markup: buildStartKeyboard(options),
+      reply_markup: await buildStartKeyboardForChat(chatId, options),
     },
   );
 }
@@ -1223,10 +1641,13 @@ async function createOrReusePixPayment(
   chatId,
   telegramUser,
   model,
+  planId,
   options,
   forceNew = false,
 ) {
-  if (!options.paymentConfig.enabled) {
+  const selectedPlan = getPaymentPlan(options, planId);
+
+  if (!options.paymentConfig.enabled || !selectedPlan) {
     return sendPlainText(
       token,
       chatId,
@@ -1248,30 +1669,13 @@ async function createOrReusePixPayment(
     options,
   );
   const targetModelSlug = model ? getModelRouteSlug(model) : 'home';
-
-  if (forceNew) {
-    const stalePayments = await options.billingStore.listPendingPaymentsForChat(chatId, targetModelSlug);
-
-    for (const stalePayment of stalePayments) {
-      await options.billingStore.updatePayment(stalePayment.id, {
-        status: 'replaced',
-        syncpayPayload: {
-          ...(stalePayment.syncpayPayload && typeof stalePayment.syncpayPayload === 'object'
-            ? stalePayment.syncpayPayload
-            : {}),
-          replacedAt: new Date().toISOString(),
-          replacedBy: 'repay',
-        },
-      });
-
-      await deletePaymentMessages(token, stalePayment, options);
-    }
-  }
+  const targetPlanId = normalizePlanId(selectedPlan.id) || normalizePlanId(options.paymentConfig.defaultPlanId) || '30d';
 
   if (!forceNew) {
     const pendingPayment = await options.billingStore.findPendingPayment(
       chatId,
       targetModelSlug,
+      targetPlanId,
     );
 
     if (pendingPayment?.paymentCode) {
@@ -1280,18 +1684,39 @@ async function createOrReusePixPayment(
     }
   }
 
+  const stalePayments = await options.billingStore.listPendingPaymentsForChat(chatId, targetModelSlug);
+
+  for (const stalePayment of stalePayments) {
+    await options.billingStore.updatePayment(stalePayment.id, {
+      status: 'replaced',
+      syncpayPayload: {
+        ...(stalePayment.syncpayPayload && typeof stalePayment.syncpayPayload === 'object'
+          ? stalePayment.syncpayPayload
+          : {}),
+        replacedAt: new Date().toISOString(),
+        replacedBy: forceNew ? 'repay' : 'new-plan',
+      },
+    });
+
+    await deletePaymentMessages(token, stalePayment, options);
+  }
+
   const payment = await options.billingStore.createPayment({
     chatId: String(chatId),
     telegramUserId: telegramUser?.id || customer.telegramUserId,
+    planId: targetPlanId,
+    planName: selectedPlan.name,
+    planDurationLabel: selectedPlan.durationLabel,
+    displayAmount: selectedPlan.displayAmount,
     modelSlug: targetModelSlug,
     modelName: model?.name || '',
-    amount: options.paymentConfig.amount,
+    amount: selectedPlan.chargeAmount,
     status: 'draft',
   });
 
   try {
     const createdPayment = await options.paymentClient.createPixPayment({
-      amount: options.paymentConfig.amount,
+      amount: selectedPlan.chargeAmount,
       customer: {
         name: paymentCustomer.name,
         email: paymentCustomer.email,
@@ -1299,7 +1724,7 @@ async function createOrReusePixPayment(
       externalReference: payment.externalReference,
       postbackUrl: options.paymentConfig.webhookUrl,
       itemTitle: `Acesso AllPrivacy - ${model?.name || 'Grupo VIP'}`,
-      itemDescription: `Acesso privado por ${options.paymentConfig.durationLabel}`,
+      itemDescription: `${selectedPlan.name} - ${selectedPlan.durationLabel}`,
     });
 
     const nextPayment =
@@ -1319,6 +1744,7 @@ async function createOrReusePixPayment(
       paymentId: nextPayment.id,
       transactionId: nextPayment.syncpayTransactionId,
       model: nextPayment.modelName || 'home',
+      plan: targetPlanId,
     });
 
     await options.billingStore.clearConversation(chatId);
@@ -1359,6 +1785,10 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
   }
 
   if (!payment.syncpayTransactionId) {
+    const normalizedPlanId =
+      normalizePlanId(payment.planId) ||
+      normalizePlanId(options.paymentConfig.defaultPlanId) ||
+      '30d';
     if (callbackId) {
       await answerCallbackQuery(token, callbackId, 'Esse Pix nao tem transacao valida.');
       return null;
@@ -1370,7 +1800,12 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Gerar novo Pix', callback_data: `repay:${payment.modelSlug || 'home'}` }],
+            [
+              {
+                text: 'Gerar novo Pix',
+                callback_data: `repay:${normalizedPlanId}:${payment.modelSlug || 'home'}`,
+              },
+            ],
           ],
         },
       },
@@ -1436,6 +1871,76 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
   }
 }
 
+async function simulatePaymentApproval(token, chatId, paymentId, options, callbackId = '') {
+  if (!options.paymentConfig.simulationEnabled) {
+    if (callbackId) {
+      await answerCallbackQuery(token, callbackId, 'Simulacao desativada.', {
+        show_alert: true,
+      });
+      return null;
+    }
+
+    return null;
+  }
+
+  const payment = await options.billingStore.getPayment(paymentId);
+
+  if (!payment || payment.chatId !== String(chatId)) {
+    if (callbackId) {
+      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse Pix.');
+      return null;
+    }
+
+    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+  }
+
+  const simulationLock = await options.billingStore.updatePaymentIfStatus(
+    payment.id,
+    ['draft', 'pending', 'created', 'waiting_payment'],
+    {
+      status: 'processing-test',
+      syncpayPayload: {
+        ...(payment.syncpayPayload && typeof payment.syncpayPayload === 'object'
+          ? payment.syncpayPayload
+          : {}),
+        simulatedAt: new Date().toISOString(),
+        simulatedBy: 'bot-test-mode',
+      },
+    },
+  );
+  const nextPayment = simulationLock.payment || payment;
+
+  if (!simulationLock.matched) {
+    if (callbackId) {
+      await answerCallbackQuery(token, callbackId, 'Esse Pix ja foi finalizado.');
+      return null;
+    }
+
+    return null;
+  }
+
+  if (callbackId) {
+    await answerCallbackQuery(token, callbackId, 'Aprovando teste...');
+  }
+
+  return settlePaymentFromWebhookPayload(
+    token,
+    nextPayment,
+    {
+      transactionId: nextPayment.syncpayTransactionId || `sim-${nextPayment.id}`,
+      paymentCode: nextPayment.paymentCode,
+      paymentCodeBase64: nextPayment.paymentCodeBase64,
+      paymentLink: nextPayment.paymentLink,
+      dueAt: nextPayment.dueAt,
+      status: 'PAID',
+      paidAt: new Date().toISOString(),
+      simulated: true,
+    },
+    options,
+    'simulation',
+  );
+}
+
 async function handleConversationReply(token, message, conversation, readSiteContent, options) {
   const chatId = message.chat?.id;
   const text = toText(message.text);
@@ -1484,7 +1989,14 @@ async function handleConversationReply(token, message, conversation, readSiteCon
 
     await options.billingStore.upsertCustomer(chatId, { cpf: normalizeCpfDigits(text) });
     await options.billingStore.clearConversation(chatId);
-    return createOrReusePixPayment(token, chatId, message.from, model, options);
+    return createOrReusePixPayment(
+      token,
+      chatId,
+      message.from,
+      model,
+      options.paymentConfig.defaultPlanId,
+      options,
+    );
   }
 
   return null;
@@ -1634,9 +2146,9 @@ async function expirePendingPixPayments(token, options) {
     await sendPlainText(
       token,
       expiredPayment.chatId,
-      'Tempo de pagamento expirado.',
+      '⏳ Tempo de pagamento expirado.',
       {
-        reply_markup: buildStartKeyboard(options),
+        reply_markup: await buildStartKeyboardForChat(expiredPayment.chatId, options),
       },
     );
   }
@@ -1690,9 +2202,9 @@ async function expireSubscriptions(token, options) {
     await sendPlainText(
       token,
       subscription.chatId,
-      `Seu acesso de ${options.paymentConfig.durationLabel} ao grupo privado terminou. Quando quiser renovar, gere um novo Pix aqui no bot.`,
+      `⌛ Seu acesso ${subscription.planName ? `do ${subscription.planName}` : subscription.planDurationLabel ? `de ${subscription.planDurationLabel}` : 'ao grupo privado'} terminou.\n\nQuando quiser renovar, gere um novo Pix aqui no bot.`,
       {
-        reply_markup: buildStartKeyboard(options),
+        reply_markup: await buildStartKeyboardForChat(subscription.chatId, options),
       },
     );
   }
@@ -1790,9 +2302,53 @@ async function sendModelDetails(token, chatId, model, options) {
   return sendText(
     token,
     chatId,
-    `${caption}\n\nSeparei *3 previas aleatorias* dessa modelo.\n\nPara liberar *${options.paymentConfig.durationLabel} de acesso* ao grupo privado, gere o Pix abaixo.`,
+    `${caption}\n\nSeparei *3 previas aleatorias* dessa modelo.\n\n${buildPaymentPlansIntro(
+      options,
+      '💎 Planos disponiveis:',
+    )}\n\nEscolha uma opcao abaixo para gerar o Pix.`,
     { reply_markup: replyMarkup },
   );
+}
+
+async function sendSitewidePreviews(token, chatId, siteContent, options) {
+  const mediaPreview = getRandomSitewideMediaSelection(siteContent);
+
+  logBot('Enviando previas globais.', {
+    chatId,
+    totalMidias: mediaPreview.length,
+    selecao: mediaPreview.map((item) => `${item.type}:${item.modelName || item.modelSlug || 'site'}`).join(', '),
+  });
+
+  if (mediaPreview.length === 0) {
+    return sendPlainText(token, chatId, '🌐 Acesse o site para ver mais previas.', {
+      reply_markup: await buildStartKeyboardForChat(chatId, options),
+    });
+  }
+
+  for (const item of mediaPreview) {
+    if (item.type === 'video') {
+      const videoSource = await resolveTelegramMediaSource(
+        item.src,
+        options.siteUrl,
+        options.resolveLocalAssetPath,
+        options.telegramFileCache,
+      );
+
+      await sendVideo(token, chatId, videoSource, '', {}, options.telegramFileCache);
+      continue;
+    }
+
+    const photoSource = await resolveTelegramMediaSource(
+      item.thumbnail,
+      options.siteUrl,
+      options.resolveLocalAssetPath,
+      options.telegramFileCache,
+    );
+
+    await sendPhoto(token, chatId, photoSource, '', {}, options.telegramFileCache);
+  }
+
+  return null;
 }
 
 async function handleMessage(token, message, readSiteContent, options) {
@@ -1830,9 +2386,30 @@ async function handleMessage(token, message, readSiteContent, options) {
   });
 
   if (normalizedCommand === '/start') {
-    const referencedModel = startPayload
-      ? findModelByInput(siteContent.models, startPayload.replace(/^ref[:-]/i, ''))
-      : null;
+    const { planId: requestedPlanId, target: requestedTarget } = parseStartPayload(
+      startPayload.replace(/^ref[:-]/i, ''),
+    );
+    const referencedModel =
+      requestedTarget && requestedTarget !== 'home'
+        ? findModelByInput(siteContent.models, requestedTarget)
+        : null;
+
+    if (requestedPlanId) {
+      logBot('Referencia identificada no /start.', {
+        chatId,
+        payload: startPayload,
+        model: referencedModel?.name || 'home',
+        planId: requestedPlanId,
+      });
+      return createOrReusePixPayment(
+        token,
+        chatId,
+        message.from,
+        referencedModel,
+        requestedPlanId,
+        options,
+      );
+    }
 
     if (referencedModel) {
       logBot('Referencia identificada no /start.', {
@@ -1852,9 +2429,9 @@ async function handleMessage(token, message, readSiteContent, options) {
     return sendText(
       token,
       chatId,
-      `*AllPrivacy*\n\nVeja as modelos publicadas no site ou gere seu Pix para liberar o grupo privado por ${options.paymentConfig.durationLabel}.`,
+      `*AllPrivacy*\n\n👀 Veja previas no bot.\n${buildPaymentPlansIntro(options)}`,
       {
-        reply_markup: buildStartKeyboard(options),
+        reply_markup: await buildStartKeyboardForChat(chatId, options),
       },
     );
   }
@@ -1897,9 +2474,50 @@ async function handleMessage(token, message, readSiteContent, options) {
   }
 
   if (normalizedCommand === '/pagar') {
-    const query = args.join(' ');
+    const possiblePlanId = normalizePlanId(args[0] || '');
+    const selectedPlanId = ['7d', '30d'].includes(possiblePlanId) ? possiblePlanId : '';
+    const query = selectedPlanId ? args.slice(1).join(' ') : args.join(' ');
     const model = query ? findModelByInput(siteContent.models, query) : null;
-    return createOrReusePixPayment(token, chatId, message.from, model, options);
+    return createOrReusePixPayment(
+      token,
+      chatId,
+      message.from,
+      model,
+      selectedPlanId,
+      options,
+    );
+  }
+
+  if (normalizedCommand === '/assinatura') {
+    const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
+    return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
+  }
+
+  if (normalizedCommand === '/site') {
+    return sendText(
+      token,
+      chatId,
+      '🌐 *AllPrivacy*\n\nAcesse o site oficial para ver mais previas e conhecer as modelos.',
+      {
+        reply_markup: buildSiteKeyboard(options.siteUrl),
+      },
+    );
+  }
+
+  if (normalizedCommand === '/suporte') {
+    const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
+    const supportText = activeSubscription
+      ? '🆘 *Suporte*\n\nSe tiver problema para entrar no grupo, toque em *Meu acesso* ou use /assinatura para consultar sua validade atual.'
+      : '🆘 *Suporte*\n\nSe o pagamento ainda nao apareceu, toque em *Ja paguei, verificar* no Pix gerado.\n\nSe precisar de mais previas ou informacoes, use /site.';
+
+    return sendText(
+      token,
+      chatId,
+      supportText,
+      {
+        reply_markup: await buildStartKeyboardForChat(chatId, options),
+      },
+    );
   }
 
   if (normalizedCommand === '/grupo') {
@@ -1912,9 +2530,11 @@ async function handleMessage(token, message, readSiteContent, options) {
     return sendText(
       token,
       chatId,
-      `A entrada no grupo privado e liberada apos o Pix. Gere sua cobranca para ${options.paymentConfig.durationLabel} abaixo.`,
+      `🔐 A entrada no grupo privado e liberada apos o Pix.\n\n${buildPaymentPlansIntro(
+        options,
+      )}`,
       {
-        reply_markup: buildStartKeyboard(options),
+        reply_markup: await buildStartKeyboardForChat(chatId, options),
       },
     );
   }
@@ -1922,13 +2542,14 @@ async function handleMessage(token, message, readSiteContent, options) {
   return sendText(
     token,
     chatId,
-    'Comandos disponiveis:\n/start\n/modelos\n/modelo nome\n/pagar\n/grupo',
+    '📌 Comandos disponiveis:\n/start\n/suporte\n/assinatura\n/site',
   );
 }
 
 async function handleCallbackQuery(token, callbackQuery, readSiteContent, options) {
   const callbackId = callbackQuery.id;
   const chatId = callbackQuery.message?.chat?.id;
+  const sourceMessageId = callbackQuery.message?.message_id;
   const data = toText(callbackQuery.data);
 
   if (!callbackId || !chatId) {
@@ -1946,6 +2567,51 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
   if (data === 'list-models') {
     await answerCallbackQuery(token, callbackId);
     return sendModelList(token, chatId, siteContent, options.siteUrl);
+  }
+
+  if (data === 'my-access') {
+    await answerCallbackQuery(token, callbackId);
+    const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
+    return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
+  }
+
+  if (data === 'show-previews') {
+    const previewResult = await consumePreviewUsage(chatId, options);
+
+    if (Number.isInteger(sourceMessageId)) {
+      try {
+        await deleteMessage(token, chatId, sourceMessageId);
+      } catch (error) {
+        logBot('Falha ao apagar menu antigo das previas.', {
+          chatId,
+          sourceMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (!previewResult.allowed) {
+      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais previas.');
+      return null;
+    }
+
+    await answerCallbackQuery(token, callbackId);
+    await sendSitewidePreviews(token, chatId, siteContent, options);
+
+    if (!previewResult.usage.canUse) {
+      return sendPlainText(token, chatId, '🌐 Acesse o site para mais previas.', {
+        reply_markup: await buildStartKeyboardForChat(chatId, options),
+      });
+    }
+
+    return sendText(
+      token,
+      chatId,
+      '*AllPrivacy*\n\n👀 Veja mais previas.\n💳 Ou gere seu Pix para liberar o grupo privado.',
+      {
+        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais previas'),
+      },
+    );
   }
 
   if (data.startsWith('model:')) {
@@ -1970,22 +2636,44 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
   }
 
   if (data.startsWith('pay:')) {
-    const slug = data.replace(/^pay:/, '');
-    const model = slug && slug !== 'home' ? findModelByInput(siteContent.models, slug) : null;
+    const { planId, modelSlug } = parsePaymentActionPayload(data, 'pay');
+    const model =
+      modelSlug && modelSlug !== 'home' ? findModelByInput(siteContent.models, modelSlug) : null;
     await answerCallbackQuery(token, callbackId, 'Gerando Pix...');
-    return createOrReusePixPayment(token, chatId, callbackQuery.from, model, options);
+    return createOrReusePixPayment(
+      token,
+      chatId,
+      callbackQuery.from,
+      model,
+      planId,
+      options,
+    );
   }
 
   if (data.startsWith('repay:')) {
-    const slug = data.replace(/^repay:/, '');
-    const model = slug && slug !== 'home' ? findModelByInput(siteContent.models, slug) : null;
+    const { planId, modelSlug } = parsePaymentActionPayload(data, 'repay');
+    const model =
+      modelSlug && modelSlug !== 'home' ? findModelByInput(siteContent.models, modelSlug) : null;
     await answerCallbackQuery(token, callbackId, 'Gerando novo Pix...');
-    return createOrReusePixPayment(token, chatId, callbackQuery.from, model, options, true);
+    return createOrReusePixPayment(
+      token,
+      chatId,
+      callbackQuery.from,
+      model,
+      planId,
+      options,
+      true,
+    );
   }
 
   if (data.startsWith('verify:')) {
     const paymentId = data.replace(/^verify:/, '');
     return verifyPendingPayment(token, chatId, paymentId, options, callbackId);
+  }
+
+  if (data.startsWith('simulate-pay:')) {
+    const paymentId = data.replace(/^simulate-pay:/, '');
+    return simulatePaymentApproval(token, chatId, paymentId, options, callbackId);
   }
 
   if (data.startsWith('cancel:')) {
@@ -2038,12 +2726,31 @@ export function startTelegramBot({
     billingStore,
     paymentClient,
     paymentConfig: {
-      enabled: Boolean(paymentClient?.enabled) && Number(paymentConfig?.amount) > 0,
-      amount: Number(paymentConfig?.amount || 0),
+      enabled:
+        Boolean(paymentClient?.enabled) &&
+        Array.isArray(paymentConfig?.plans) &&
+        paymentConfig.plans.some((plan) => Number(plan?.chargeAmount || 0) > 0),
+      plans: Array.isArray(paymentConfig?.plans)
+        ? paymentConfig.plans
+            .map((plan) => ({
+              id: normalizePlanId(plan?.id),
+              name: toText(plan?.name),
+              durationLabel: toText(plan?.durationLabel),
+              displayAmount: Number(plan?.displayAmount || 0),
+              chargeAmount: Number(plan?.chargeAmount || 0),
+              durationMs: Number(plan?.durationMs || 0),
+            }))
+            .filter((plan) => plan.id && plan.chargeAmount > 0)
+        : [],
+      defaultPlanId: normalizePlanId(paymentConfig?.defaultPlanId),
+      simulationEnabled: Boolean(paymentConfig?.simulationEnabled),
+      previewUsageWindowMs: Math.max(1000, Number(paymentConfig?.previewUsageWindowMs || 24 * 60 * 60 * 1000)),
       pixTtlMs: Math.max(60000, Number(paymentConfig?.pixTtlMs || 5 * 60 * 1000)),
-      durationMs: Number(paymentConfig?.durationMs || 30 * 24 * 60 * 60 * 1000),
-      durationLabel: formatAccessDuration(
-        Number(paymentConfig?.durationMs || 30 * 24 * 60 * 60 * 1000),
+      durationMs: Math.max(
+        30 * 1000,
+        ...(Array.isArray(paymentConfig?.plans) && paymentConfig.plans.length > 0
+          ? paymentConfig.plans.map((plan) => Number(plan?.durationMs || 0))
+          : [30 * 24 * 60 * 60 * 1000]),
       ),
       privateGroupChatId: toText(paymentConfig?.privateGroupChatId),
       webhookUrl: toText(paymentConfig?.webhookUrl),
@@ -2061,6 +2768,14 @@ export function startTelegramBot({
     pagamentosAtivos: options.paymentConfig.enabled,
   });
 
+  configureTelegramCommands(normalizedToken)
+    .then(() => {
+      logBot('Menu de comandos do Telegram configurado.');
+    })
+    .catch((error) => {
+      console.error('Falha ao configurar menu de comandos do Telegram:', error);
+    });
+
   async function processUpdate(update) {
     if (update.message) {
       await handleMessage(normalizedToken, update.message, readSiteContent, options);
@@ -2068,6 +2783,10 @@ export function startTelegramBot({
 
     if (update.callback_query) {
       await handleCallbackQuery(normalizedToken, update.callback_query, readSiteContent, options);
+    }
+
+    if (update.chat_join_request) {
+      await handleChatJoinRequest(normalizedToken, update.chat_join_request, options);
     }
   }
 
@@ -2082,7 +2801,7 @@ export function startTelegramBot({
       const updates = await telegramRequest(normalizedToken, 'getUpdates', {
         timeout: 25,
         offset,
-        allowed_updates: ['message', 'callback_query'],
+        allowed_updates: ['message', 'callback_query', 'chat_join_request'],
       });
 
       if (consecutivePollFailures > 0) {

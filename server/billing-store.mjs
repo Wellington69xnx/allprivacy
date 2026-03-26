@@ -38,6 +38,9 @@ function normalizeCustomer(customer, chatIdKey) {
     email: toText(customer.email),
     cpf: toText(customer.cpf),
     phone: toText(customer.phone),
+    previewUsageDate: toText(customer.previewUsageDate),
+    previewUsageCount: Math.max(0, Number(customer.previewUsageCount || 0)),
+    previewUsageWindowStartedAt: toText(customer.previewUsageWindowStartedAt),
     createdAt: toText(customer.createdAt) || new Date().toISOString(),
     updatedAt: toText(customer.updatedAt) || new Date().toISOString(),
   };
@@ -81,6 +84,10 @@ function normalizePayment(payment, paymentIdKey) {
     id,
     chatId: String(payment.chatId ?? ''),
     telegramUserId: Number(payment.telegramUserId || 0) || null,
+    planId: toText(payment.planId),
+    planName: toText(payment.planName),
+    planDurationLabel: toText(payment.planDurationLabel),
+    displayAmount: Number(payment.displayAmount || 0),
     modelSlug: toText(payment.modelSlug),
     modelName: toText(payment.modelName),
     externalReference: toText(payment.externalReference) || id,
@@ -126,6 +133,10 @@ function normalizeSubscription(subscription, subscriptionIdKey) {
     chatId: String(subscription.chatId ?? ''),
     telegramUserId: Number(subscription.telegramUserId || 0) || null,
     status: toText(subscription.status) || 'active',
+    planId: toText(subscription.planId),
+    planName: toText(subscription.planName),
+    planDurationLabel: toText(subscription.planDurationLabel),
+    displayAmount: Number(subscription.displayAmount || 0),
     modelSlug: toText(subscription.modelSlug),
     modelName: toText(subscription.modelName),
     lastPaymentId: toText(subscription.lastPaymentId),
@@ -446,9 +457,10 @@ export function createBillingStore(filePath) {
         ) ?? null
       );
     },
-    async findPendingPayment(chatId, modelSlug) {
+    async findPendingPayment(chatId, modelSlug, planId = '') {
       const chatIdKey = String(chatId);
       const normalizedModelSlug = toText(modelSlug);
+      const normalizedPlanId = toText(planId);
       const state = await readState();
       const now = Date.now();
 
@@ -464,6 +476,13 @@ export function createBillingStore(filePath) {
             }
 
             return payment.modelSlug === normalizedModelSlug;
+          })
+          .filter((payment) => {
+            if (!normalizedPlanId) {
+              return true;
+            }
+
+            return payment.planId === normalizedPlanId;
           })
           .filter((payment) => {
             if (!payment.dueAt) {
@@ -485,9 +504,10 @@ export function createBillingStore(filePath) {
         null
       );
     },
-    async listPendingPaymentsForChat(chatId, modelSlug = '') {
+    async listPendingPaymentsForChat(chatId, modelSlug = '', planId = '') {
       const chatIdKey = String(chatId);
       const normalizedModelSlug = toText(modelSlug);
+      const normalizedPlanId = toText(planId);
       const state = await readState();
       const now = Date.now();
 
@@ -502,6 +522,13 @@ export function createBillingStore(filePath) {
           }
 
           return payment.modelSlug === normalizedModelSlug;
+        })
+        .filter((payment) => {
+          if (!normalizedPlanId) {
+            return true;
+          }
+
+          return payment.planId === normalizedPlanId;
         })
         .filter((payment) => {
           if (!payment.dueAt) {
@@ -549,10 +576,36 @@ export function createBillingStore(filePath) {
         null
       );
     },
+    async getActiveSubscriptionByTelegramUserId(telegramUserId) {
+      const normalizedUserId = Number(telegramUserId || 0);
+
+      if (!normalizedUserId) {
+        return null;
+      }
+
+      const state = await readState();
+      const now = Date.now();
+
+      return (
+        Object.values(state.subscriptions)
+          .filter((subscription) => subscription.telegramUserId === normalizedUserId)
+          .filter((subscription) => subscription.status === 'active')
+          .filter((subscription) => {
+            const expiresAt = Date.parse(subscription.expiresAt);
+            return Number.isFinite(expiresAt) ? expiresAt > now : false;
+          })
+          .sort((left, right) => Date.parse(right.expiresAt) - Date.parse(left.expiresAt))[0] ??
+        null
+      );
+    },
     async grantSubscription({
       chatId,
       telegramUserId,
       paymentId,
+      planId,
+      planName,
+      planDurationLabel,
+      displayAmount,
       modelSlug,
       modelName,
       durationMs,
@@ -584,6 +637,10 @@ export function createBillingStore(filePath) {
             chatId: chatIdKey,
             telegramUserId,
             status: 'active',
+            planId: toText(planId) || existingActive?.planId,
+            planName: toText(planName) || existingActive?.planName,
+            planDurationLabel: toText(planDurationLabel) || existingActive?.planDurationLabel,
+            displayAmount: Number(displayAmount || existingActive?.displayAmount || 0),
             modelSlug: toText(modelSlug) || existingActive?.modelSlug,
             modelName: toText(modelName) || existingActive?.modelName,
             lastPaymentId: paymentId,

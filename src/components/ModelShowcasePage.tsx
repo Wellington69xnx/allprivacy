@@ -1,21 +1,25 @@
 import { motion } from 'framer-motion';
 import { useEffect, useMemo } from 'react';
 import { getPreviewCardsForModelByType } from '../data/models';
+import type { SubscriptionPlanLink } from '../lib/subscriptionPlans';
 import { getHomePath } from '../lib/modelRoute';
 import type { ModelProfile } from '../types';
 import { BrandMark } from './BrandMark';
 import { MediaPreviewRail } from './MediaPreviewRail';
+import { PlanOptions } from './PlanOptions';
 import { TelegramCTA } from './TelegramCTA';
 
 interface ModelShowcasePageProps {
   model: ModelProfile | null;
   ctaHref: string;
+  planOptions: SubscriptionPlanLink[];
   isLoading?: boolean;
 }
 
 export function ModelShowcasePage({
   model,
   ctaHref,
+  planOptions,
   isLoading = false,
 }: ModelShowcasePageProps) {
   const videoPreviewCards = useMemo(
@@ -171,14 +175,10 @@ export function ModelShowcasePage({
                   Entrar no grupo para ver mais de {model.name.split(' ')[0]}
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-                  Essa pagina e pensada para divulgar a modelo de forma isolada, com fundo
-                  imersivo, algumas previas e um CTA final direto para o grupo.
+                  Escolha abaixo entre o acesso de 7 dias por R$ 9,99 ou 30 dias por
+                  R$ 19,99 para continuar no bot com a cobranca correta.
                 </p>
-                <TelegramCTA
-                  href={ctaHref}
-                  label="Entrar no Grupo VIP"
-                  className="mt-5 w-full sm:w-auto"
-                />
+                <PlanOptions plans={planOptions} className="mt-5" />
               </div>
             </div>
           </div>

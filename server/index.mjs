@@ -29,6 +29,9 @@ const syncPayClientId = process.env.SYNC_PAY_CLIENT_ID || '';
 const syncPayClientSecret = process.env.SYNC_PAY_CLIENT_SECRET || '';
 const syncPayBaseUrl = process.env.SYNC_PAY_BASE_URL || 'https://api.syncpay.pro';
 const syncPayWebhookSecret = process.env.SYNC_PAY_WEBHOOK_SECRET || '';
+const paymentSimulationEnabled = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.PAYMENT_SIMULATION_ENABLED || '').trim().toLowerCase(),
+);
 const syncPayWebhookUrl =
   process.env.SYNC_PAY_WEBHOOK_URL ||
   `${sitePublicUrl.replace(/\/+$/, '')}/api/payments/syncpay/webhook${
@@ -36,15 +39,34 @@ const syncPayWebhookUrl =
       ? `?secret=${encodeURIComponent(syncPayWebhookSecret)}`
       : ''
   }`;
-const syncPayTestAmount = Number(process.env.SYNC_PAY_TEST_AMOUNT || 0.05);
+const syncPayTestAmount7Days = Number(process.env.SYNC_PAY_TEST_AMOUNT_7D || process.env.SYNC_PAY_TEST_AMOUNT || 1.01);
+const syncPayTestAmount30Days = Number(process.env.SYNC_PAY_TEST_AMOUNT_30D || 1.02);
 const syncPayTestCustomerName = process.env.SYNC_PAY_TEST_CUSTOMER_NAME || '';
 const syncPayTestCustomerEmail = process.env.SYNC_PAY_TEST_CUSTOMER_EMAIL || '';
 const syncPayTestCustomerCpf = process.env.SYNC_PAY_TEST_CUSTOMER_CPF || '';
 const syncPayTestCustomerPhone = process.env.SYNC_PAY_TEST_CUSTOMER_PHONE || '';
-const subscriptionDurationSeconds = Number(
-  process.env.SUBSCRIPTION_DURATION_SECONDS || 30 * 24 * 60 * 60,
-);
-const subscriptionDurationMs = Math.max(1, subscriptionDurationSeconds) * 1000;
+const subscriptionDuration7DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_7D || 30);
+const subscriptionDuration30DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_30D || 60);
+const previewUsageWindowSeconds = Number(process.env.PREVIEW_USAGE_WINDOW_SECONDS || 24 * 60 * 60);
+const previewUsageWindowMs = Math.max(1, previewUsageWindowSeconds) * 1000;
+const paymentPlans = [
+  {
+    id: '7d',
+    name: 'Plano 7 dias',
+    durationLabel: '7 dias',
+    displayAmount: 9.99,
+    chargeAmount: syncPayTestAmount7Days,
+    durationMs: Math.max(1, subscriptionDuration7DaysSeconds) * 1000,
+  },
+  {
+    id: '30d',
+    name: 'Plano 30 dias',
+    durationLabel: '30 dias',
+    displayAmount: 19.99,
+    chargeAmount: syncPayTestAmount30Days,
+    durationMs: Math.max(1, subscriptionDuration30DaysSeconds) * 1000,
+  },
+];
 const adminCookieName = 'allprivacy_admin';
 const adminUsername = 'well69xnx';
 const adminPassword = 'Download';
@@ -812,7 +834,7 @@ app.get('/api/health', async (_req, res) => {
   res.json({
     ok: true,
     botEnabled: telegramBotToken.length > 0,
-    paymentEnabled: syncPayClient.enabled && syncPayTestAmount > 0,
+    paymentEnabled: syncPayClient.enabled && paymentPlans.some((plan) => plan.chargeAmount > 0),
     inviteDeliveryMode: telegramPrivateGroupChatId ? 'private-invite' : 'static-group-link',
     models: siteContent.models.length,
     uploadedHeroBackgrounds:
@@ -890,8 +912,10 @@ const telegramBot = startTelegramBot({
   billingStore,
   paymentClient: syncPayClient,
   paymentConfig: {
-    amount: syncPayTestAmount,
-    durationMs: subscriptionDurationMs,
+    simulationEnabled: paymentSimulationEnabled,
+    plans: paymentPlans,
+    defaultPlanId: '30d',
+    previewUsageWindowMs,
     privateGroupChatId: telegramPrivateGroupChatId,
     webhookUrl: syncPayWebhookUrl,
     testCustomer: {
@@ -910,7 +934,11 @@ app.listen(port, () => {
     console.log('Bot Telegram iniciado com integracao ao conteudo do site.');
 
     if (syncPayClient.enabled) {
-      console.log(`Syncpay habilitado para Pix de teste em ${formatCurrencyBRL(syncPayTestAmount)}.`);
+      console.log(
+        `Syncpay habilitado para Pix de teste nos planos ${paymentPlans
+          .map((plan) => `${plan.id}:${formatCurrencyBRL(plan.chargeAmount)}`)
+          .join(' | ')}.`,
+      );
     } else {
       console.log('Syncpay desativado. Defina SYNC_PAY_API_KEY para liberar pagamentos.');
     }
