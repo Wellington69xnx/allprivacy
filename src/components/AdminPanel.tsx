@@ -4,11 +4,16 @@ import type {
   HeroBackgroundTarget,
   ModelProfile,
   SiteContent,
+  TelegramCacheWarmItem,
+  TelegramCacheWarmStatus,
   UploadAssetOptions,
   UploadAssetProgress,
   UploadAssetResult,
 } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
+
+const CACHE_WARM_STATUS_STORAGE_KEY = 'allprivacy-admin-telegram-cache-status-v1';
+const CACHE_WARM_FEEDBACK_STORAGE_KEY = 'allprivacy-admin-telegram-cache-feedback-v1';
 
 interface AdminPanelProps {
   siteContent: SiteContent;
@@ -70,6 +75,12 @@ interface AdminPanelProps {
   }) => Promise<void>;
   removeHeroBackground: (target: HeroBackgroundTarget, itemId: string) => Promise<void>;
   clearSiteContent: () => Promise<void>;
+  warmTelegramMediaCache: (
+    onStatus?: (status: TelegramCacheWarmStatus) => void,
+  ) => Promise<TelegramCacheWarmStatus>;
+  checkTelegramMediaCache: (
+    onStatus?: (status: TelegramCacheWarmStatus) => void,
+  ) => Promise<TelegramCacheWarmStatus>;
 }
 
 interface ModelFormState {
@@ -541,6 +552,176 @@ function TaskProgressBar({
   );
 }
 
+interface TelegramCacheWarmGroup {
+  label: string;
+  items: TelegramCacheWarmItem[];
+  cached: number;
+  warmed: number;
+  missing: number;
+  failed: number;
+}
+
+function normalizeCacheReasonForDisplay(reason: string) {
+  const normalizedReason = reason.trim();
+
+  if (!normalizedReason) {
+    return 'Falha ao verificar esta midia no cache do Telegram.';
+  }
+
+  if (
+    normalizedReason.toLowerCase().includes('file is too big') ||
+    normalizedReason.toLowerCase().includes('too big') ||
+    normalizedReason.toLowerCase().includes('arquivo acima do limite aceito pelo bot do telegram')
+  ) {
+    return 'Arquivo acima do limite aceito pelo Bot do Telegram para esse tipo de envio.';
+  }
+
+  return normalizedReason;
+}
+
+function normalizeCacheFeedbackMessage(message: string) {
+  return message
+    .replace(
+      /bad request:\s*file is too big/gi,
+      'Arquivo acima do limite aceito pelo Bot do Telegram para esse tipo de envio.',
+    )
+    .replace(
+      /arquivo acima do limite de 50 mb do bot api do telegram\./gi,
+      'Arquivo acima do limite aceito pelo Bot do Telegram para esse tipo de envio.',
+    );
+}
+
+function normalizeStoredCacheWarmStatus(status: TelegramCacheWarmStatus | null) {
+  if (!status) {
+    return null;
+  }
+
+  return {
+    ...status,
+    failures: status.failures.map((failure) => ({
+      ...failure,
+      reason: normalizeCacheReasonForDisplay(failure.reason),
+    })),
+    items: status.items.map((item) => ({
+      ...item,
+      reason: item.reason ? normalizeCacheReasonForDisplay(item.reason) : item.reason,
+    })),
+  };
+}
+
+function formatCacheStatusFeedback(status: TelegramCacheWarmStatus) {
+  const actionLabel = status.mode === 'check' ? 'Verificacao concluida.' : 'Cache concluido.';
+  const warmedLabel =
+    status.mode === 'check' ? '0 enviada(s) agora' : `${status.warmed} enviada(s) agora`;
+  const baseMessage = `${actionLabel} ${status.checked} midia(s) verificadas, ${status.alreadyCached} ja em cache, ${warmedLabel} e ${status.failed} falha(s).`;
+
+  if (status.failed === 0) {
+    return baseMessage;
+  }
+
+  const failurePreview = status.failures
+    .slice(0, 3)
+    .map((failure) => {
+      const filename = failure.assetUrl.split('/').pop() || failure.assetUrl;
+      return `${decodeURIComponent(filename)}: ${normalizeCacheReasonForDisplay(failure.reason)}`;
+    })
+    .join(' | ');
+
+  return normalizeCacheFeedbackMessage(`${baseMessage} Primeiras falhas: ${failurePreview}`);
+}
+
+function formatCacheWarmLogTime(timestamp: string) {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(timestamp));
+  } catch {
+    return '';
+  }
+}
+
+function readStoredCacheWarmState() {
+  if (typeof window === 'undefined') {
+    return {
+      status: null as TelegramCacheWarmStatus | null,
+      feedback: null as { message: string; tone: 'success' | 'error' } | null,
+    };
+  }
+
+  try {
+    const rawStatus = window.localStorage.getItem(CACHE_WARM_STATUS_STORAGE_KEY);
+    const rawFeedback = window.localStorage.getItem(CACHE_WARM_FEEDBACK_STORAGE_KEY);
+    const parsedFeedback = rawFeedback
+      ? (JSON.parse(rawFeedback) as { message: string; tone: 'success' | 'error' })
+      : null;
+
+    return {
+      status: normalizeStoredCacheWarmStatus(
+        rawStatus ? (JSON.parse(rawStatus) as TelegramCacheWarmStatus) : null,
+      ),
+      feedback: parsedFeedback
+        ? ({
+            ...parsedFeedback,
+            message: normalizeCacheFeedbackMessage(parsedFeedback.message),
+          } as { message: string; tone: 'success' | 'error' })
+        : null,
+    };
+  } catch {
+    return {
+      status: null as TelegramCacheWarmStatus | null,
+      feedback: null as { message: string; tone: 'success' | 'error' } | null,
+    };
+  }
+}
+
+function groupCacheItems(items: TelegramCacheWarmItem[]) {
+  const groups = new Map<string, TelegramCacheWarmGroup>();
+
+  for (const item of items) {
+    const groupLabel = item.groupLabel || 'Outros';
+    const currentGroup = groups.get(groupLabel) ?? {
+      label: groupLabel,
+      items: [],
+      cached: 0,
+      warmed: 0,
+      missing: 0,
+      failed: 0,
+    };
+
+    currentGroup.items.push(item);
+    if (item.status === 'cached') {
+      currentGroup.cached += 1;
+    } else if (item.status === 'warmed') {
+      currentGroup.warmed += 1;
+    } else if (item.status === 'missing') {
+      currentGroup.missing += 1;
+    } else {
+      currentGroup.failed += 1;
+    }
+    groups.set(groupLabel, currentGroup);
+  }
+
+  return Array.from(groups.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function getCacheGroupTone(label: string) {
+  void label;
+  return {
+    shell:
+      'border-white/12 bg-gradient-to-br from-white/[0.055] via-white/[0.025] to-black/45 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
+    header: 'bg-white/[0.035]',
+    accent: 'bg-white/24',
+    button:
+      'border-white/12 bg-white/[0.05] text-white/85 shadow-[0_0_0_1px_rgba(255,255,255,0.035)]',
+    divider: 'border-white/12',
+    badge: 'border-white/12 bg-white/[0.04] text-white/72',
+    title: 'text-white',
+    subtitle: 'text-white/60',
+  };
+}
+
 export function AdminPanel({
   siteContent,
   isLoading,
@@ -559,7 +740,10 @@ export function AdminPanel({
   addHeroBackground,
   removeHeroBackground,
   clearSiteContent,
+  warmTelegramMediaCache,
+  checkTelegramMediaCache,
 }: AdminPanelProps) {
+  const initialCacheWarmState = readStoredCacheWarmState();
   const [modelForm, setModelForm] = useState(emptyModelForm);
   const [mediaForm, setMediaForm] = useState(emptyMediaForm);
   const [groupProofForm, setGroupProofForm] = useState(emptyGroupProofForm);
@@ -571,6 +755,16 @@ export function AdminPanel({
   const [activeTask, setActiveTask] = useState<string | null>(null);
   const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [cacheWarmFeedback, setCacheWarmFeedback] = useState<string | null>(
+    initialCacheWarmState.feedback?.message ?? null,
+  );
+  const [cacheWarmFeedbackTone, setCacheWarmFeedbackTone] = useState<'success' | 'error'>(
+    initialCacheWarmState.feedback?.tone ?? 'success',
+  );
+  const [cacheWarmStatus, setCacheWarmStatus] = useState<TelegramCacheWarmStatus | null>(
+    initialCacheWarmState.status,
+  );
+  const [expandedCacheGroups, setExpandedCacheGroups] = useState<string[]>([]);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   const [editingModelForm, setEditingModelForm] = useState(emptyModelForm);
@@ -601,6 +795,39 @@ export function AdminPanel({
       }));
     }
   }, [mediaForm.modelId, siteContent.models]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (cacheWarmStatus) {
+      window.localStorage.setItem(
+        CACHE_WARM_STATUS_STORAGE_KEY,
+        JSON.stringify(cacheWarmStatus),
+      );
+    } else {
+      window.localStorage.removeItem(CACHE_WARM_STATUS_STORAGE_KEY);
+    }
+  }, [cacheWarmStatus]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (cacheWarmFeedback) {
+      window.localStorage.setItem(
+        CACHE_WARM_FEEDBACK_STORAGE_KEY,
+        JSON.stringify({
+          message: normalizeCacheFeedbackMessage(cacheWarmFeedback),
+          tone: cacheWarmFeedbackTone,
+        }),
+      );
+    } else {
+      window.localStorage.removeItem(CACHE_WARM_FEEDBACK_STORAGE_KEY);
+    }
+  }, [cacheWarmFeedback, cacheWarmFeedbackTone]);
 
   const toggleSection = (sectionId: SectionId) => {
     setOpenSections((current) => ({
@@ -1094,6 +1321,62 @@ export function AdminPanel({
     }
   };
 
+  const handleTelegramCacheJob = async (mode: 'check' | 'warm') => {
+    if (activeTask) {
+      return;
+    }
+
+    const taskId = mode === 'check' ? 'telegram-cache-check' : 'telegram-cache-warm';
+
+    setActiveTask(taskId);
+    updateTaskProgress(
+      taskId,
+      mode === 'check' ? 'Verificando midias em cache' : 'Verificando midias do projeto',
+      12,
+    );
+    setCacheWarmFeedback(null);
+    setCacheWarmFeedbackTone('success');
+    setCacheWarmStatus(null);
+    setExpandedCacheGroups([]);
+
+    try {
+      const runJob =
+        mode === 'check' ? checkTelegramMediaCache : warmTelegramMediaCache;
+      const summary = await runJob((status) => {
+        setCacheWarmStatus(normalizeStoredCacheWarmStatus(status));
+        updateTaskProgress(
+          taskId,
+          status.currentStep ||
+            (mode === 'check'
+              ? 'Verificando midias em cache'
+              : 'Enviando midias para cache'),
+          status.progressPercent || 12,
+        );
+      });
+      const normalizedSummary = normalizeStoredCacheWarmStatus(summary);
+      setCacheWarmStatus(normalizedSummary);
+      updateTaskProgress(
+        taskId,
+        mode === 'check' ? 'Verificacao do cache concluida' : 'Cache do Telegram concluido',
+        100,
+      );
+      setCacheWarmFeedback(formatCacheStatusFeedback(normalizedSummary ?? summary));
+      setCacheWarmFeedbackTone((normalizedSummary ?? summary).failed > 0 ? 'error' : 'success');
+    } catch (error) {
+      setCacheWarmFeedback(
+        error instanceof Error && error.message
+          ? normalizeCacheFeedbackMessage(error.message)
+          : mode === 'check'
+            ? 'Nao foi possivel verificar as midias em cache agora.'
+            : 'Nao foi possivel enviar as midias para cache do Telegram agora.',
+      );
+      setCacheWarmFeedbackTone('error');
+    } finally {
+      setActiveTask(null);
+      clearTaskProgress();
+    }
+  };
+
   const handleRemoveModel = async (modelId: string) => {
     if (activeTask) {
       return;
@@ -1178,9 +1461,22 @@ export function AdminPanel({
     }
   };
 
+  const handleClearCacheWarmLog = () => {
+    setCacheWarmStatus(null);
+    setCacheWarmFeedback(null);
+    setCacheWarmFeedbackTone('success');
+    setExpandedCacheGroups([]);
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(CACHE_WARM_STATUS_STORAGE_KEY);
+      window.localStorage.removeItem(CACHE_WARM_FEEDBACK_STORAGE_KEY);
+    }
+  };
+
   const totalMedia = siteContent.models.reduce((total, model) => total + model.gallery.length, 0);
   const totalBackgrounds =
     siteContent.heroBackgrounds.mobile.length + siteContent.heroBackgrounds.desktop.length;
+  const cacheWarmGroups = groupCacheItems(cacheWarmStatus?.items ?? []);
 
   return (
     <div className="min-h-screen bg-ink text-white">
@@ -1897,6 +2193,270 @@ export function AdminPanel({
               </p>
             ) : null}
           </AdminSection>
+
+          <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-white sm:text-2xl">
+                  Cache do Telegram
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                  Verifica apenas as previas das modelos e os arquivos da pasta bot, pula o
+                  que ja estiver em cache e envia apenas o que ainda faltar para o Telegram.
+                </p>
+              </div>
+
+              <div className="grid gap-2 sm:min-w-[320px]">
+                <button
+                  type="button"
+                  onClick={() => void handleTelegramCacheJob('check')}
+                  disabled={Boolean(activeTask) || isLoading}
+                  className={ghostButtonClassName()}
+                >
+                  {getSubmitLabel(
+                    'telegram-cache-check',
+                    'Verificar midias em cache',
+                    'Verificando cache...',
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTelegramCacheJob('warm')}
+                  disabled={Boolean(activeTask) || isLoading}
+                  className={buttonClassName()}
+                >
+                  {getSubmitLabel(
+                    'telegram-cache-warm',
+                    'Enviar toda midia para cache do telegram',
+                    'Enviando para cache...',
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearCacheWarmLog}
+                  disabled={Boolean(activeTask) || (!cacheWarmStatus && !cacheWarmFeedback)}
+                  className={ghostButtonClassName()}
+                >
+                  Limpar log
+                </button>
+              </div>
+            </div>
+
+            {getTaskProgress('telegram-cache-check') ? (
+              <div className="mt-4">
+                <TaskProgressBar progress={getTaskProgress('telegram-cache-check')!} />
+              </div>
+            ) : null}
+
+            {getTaskProgress('telegram-cache-warm') ? (
+              <div className="mt-4">
+                <TaskProgressBar progress={getTaskProgress('telegram-cache-warm')!} />
+              </div>
+            ) : null}
+
+            {cacheWarmStatus ? (
+              <div className="mt-4 grid gap-3 rounded-[22px] border border-white/10 bg-black/25 p-4">
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium leading-4 text-white/75">
+                    Verificadas: {cacheWarmStatus.checked}/{cacheWarmStatus.total}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium leading-4 text-white/75">
+                    Modo: {cacheWarmStatus.mode === 'check' ? 'Verificar' : 'Enviar'}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium leading-4 text-white/75">
+                    Ja em cache: {cacheWarmStatus.alreadyCached}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium leading-4 text-white/75">
+                    Enviadas: {cacheWarmStatus.warmed}
+                  </span>
+                  <span
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-medium leading-4 ${
+                      cacheWarmStatus.failed > 0
+                        ? 'border-red-500/25 bg-red-500/10 text-red-100'
+                        : 'border-white/10 bg-white/[0.04] text-white/75'
+                    }`}
+                  >
+                    Falhas: {cacheWarmStatus.failed}
+                  </span>
+                </div>
+
+                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white/80">
+                  <div className="font-medium leading-6 text-white">
+                    {cacheWarmStatus.currentStep || 'Aguardando o cache do Telegram...'}
+                  </div>
+                  {cacheWarmStatus.currentAsset ? (
+                    <div className="mt-1 break-all text-xs text-white/45">
+                      Arquivo atual: {cacheWarmStatus.currentAsset}
+                    </div>
+                  ) : null}
+                </div>
+
+                {cacheWarmGroups.length > 0 ? (
+                  <div className="grid gap-2 rounded-[18px] border border-white/10 bg-black/30 p-3">
+                    <span className={labelClassName()}>Logs por modelo</span>
+                    <div className="space-y-4">
+                      {cacheWarmGroups.map((group) => {
+                        const isExpanded = expandedCacheGroups.includes(group.label);
+                        const groupTone = getCacheGroupTone(group.label);
+
+                        return (
+                          <div
+                            key={group.label}
+                            className={`overflow-hidden rounded-[20px] border-2 ${groupTone.shell}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedCacheGroups((current) =>
+                                  current.includes(group.label)
+                                    ? current.filter((label) => label !== group.label)
+                                    : [...current, group.label],
+                                )
+                              }
+                              className={`relative flex w-full flex-col gap-3 px-3 py-3 text-left transition sm:flex-row sm:items-center sm:justify-between ${groupTone.header}`}
+                            >
+                              <span
+                                className={`absolute inset-y-0 left-0 w-1.5 rounded-r-full ${groupTone.accent}`}
+                              />
+                              <div className="min-w-0 pl-3">
+                                <div className={`truncate font-semibold ${groupTone.title}`}>
+                                  {group.label}
+                                </div>
+                                <div
+                                  className={`mt-1 grid grid-cols-2 gap-1.5 text-[11px] sm:flex sm:flex-wrap ${groupTone.subtitle}`}
+                                >
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-center ${groupTone.badge}`}
+                                  >
+                                    {group.items.length} midia(s)
+                                  </span>
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-center ${groupTone.badge}`}
+                                  >
+                                    {group.cached} em cache
+                                  </span>
+                                  {group.warmed > 0 ? (
+                                    <span className="rounded-full border border-emerald-400/30 bg-emerald-500/12 px-2 py-0.5 text-center text-emerald-100">
+                                      {group.warmed} enviada(s)
+                                    </span>
+                                  ) : null}
+                                  {group.missing > 0 ? (
+                                    <span className="rounded-full border border-amber-400/30 bg-amber-500/12 px-2 py-0.5 text-center text-amber-100">
+                                      {group.missing} faltando
+                                    </span>
+                                  ) : null}
+                                  {group.failed > 0 ? (
+                                    <span className="rounded-full border border-red-400/30 bg-red-500/12 px-2 py-0.5 text-center text-red-100">
+                                      {group.failed} falha(s)
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <span
+                                className={`self-start rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] sm:self-auto ${groupTone.button}`}
+                              >
+                                {isExpanded ? 'Fechar' : 'Abrir'}
+                              </span>
+                            </button>
+
+                            {isExpanded ? (
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                  setExpandedCacheGroups((current) =>
+                                    current.filter((label) => label !== group.label),
+                                  )
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    setExpandedCacheGroups((current) =>
+                                      current.filter((label) => label !== group.label),
+                                    );
+                                  }
+                                }}
+                                className={`cursor-pointer border-t px-2.5 py-3 sm:px-3 ${groupTone.divider}`}
+                              >
+                                <div
+                                  className={`mb-2 break-words text-[11px] font-semibold uppercase tracking-[0.18em] ${groupTone.subtitle}`}
+                                >
+                                  Log detalhado de {group.label}
+                                </div>
+                                <div className="space-y-1.5">
+                                  {group.items.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className={`min-w-0 overflow-hidden rounded-2xl border px-2.5 py-2 text-sm sm:px-3 ${
+                                        item.status === 'failed'
+                                          ? 'border-red-500/20 bg-red-500/10 text-red-100'
+                                          : item.status === 'warmed'
+                                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+                                            : item.status === 'missing'
+                                              ? 'border-amber-500/20 bg-amber-500/10 text-amber-100'
+                                              : 'border-white/10 bg-white/[0.03] text-white/75'
+                                      }`}
+                                    >
+                                      <div className="grid min-w-0 gap-2">
+                                        <span className="min-w-0 break-all text-[13px] font-medium leading-5 sm:text-sm">
+                                          {item.assetLabel}
+                                        </span>
+                                        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+                                          <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
+                                            {item.mediaType}
+                                          </span>
+                                          <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
+                                            {item.status === 'cached'
+                                              ? 'em cache'
+                                              : item.status === 'warmed'
+                                                ? 'enviado'
+                                                : item.status === 'missing'
+                                                  ? 'faltando'
+                                                  : 'falha'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      {item.reason ? (
+                                        <div className="mt-1 break-all text-xs leading-5 opacity-80">
+                                          {normalizeCacheReasonForDisplay(item.reason)}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                {cacheWarmStatus.logs.length > 0 ? (
+                  <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/50">
+                    Ultima atualizacao:{' '}
+                    {formatCacheWarmLogTime(
+                      cacheWarmStatus.logs[cacheWarmStatus.logs.length - 1]?.timestamp || '',
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {cacheWarmFeedback ? (
+              <div
+                className={`mt-4 rounded-[22px] border px-4 py-3 text-sm ${
+                  cacheWarmFeedbackTone === 'error'
+                    ? 'border-red-500/25 bg-red-500/10 text-red-100'
+                    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+                }`}
+              >
+                {cacheWarmFeedback}
+              </div>
+            ) : null}
+          </section>
         </div>
       </div>
     </div>

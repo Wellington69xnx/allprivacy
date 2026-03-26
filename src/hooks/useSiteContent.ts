@@ -7,6 +7,7 @@ import type {
   MediaType,
   ModelProfile,
   SiteContent,
+  TelegramCacheWarmStatus,
   UploadAssetOptions,
   UploadAssetProgress,
   UploadAssetResult,
@@ -14,6 +15,7 @@ import type {
 
 const SITE_CONTENT_ENDPOINT = '/api/site-content';
 const UPLOAD_ENDPOINT = '/api/upload';
+const TELEGRAM_CACHE_WARM_ENDPOINT = '/api/admin/telegram-cache/warm-all';
 const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v1';
 
 interface ModelInput {
@@ -49,6 +51,18 @@ interface GroupProofInput {
 
 interface SiteContentResponse {
   siteContent: SiteContent;
+}
+
+interface TelegramCacheWarmStatusResponse {
+  status: TelegramCacheWarmStatus;
+}
+
+type TelegramCacheJobMode = 'check' | 'warm';
+
+function wait(durationMs: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
 }
 
 const accentPairs = [
@@ -119,8 +133,17 @@ function buildMediaItem(input: MediaInput) {
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Falha ao processar a requisicao.');
+    const rawMessage = await response.text();
+    let nextMessage = rawMessage || 'Falha ao processar a requisicao.';
+
+    try {
+      const parsed = JSON.parse(rawMessage) as { message?: string };
+      nextMessage = parsed.message || nextMessage;
+    } catch {
+      // Se nao vier JSON, mantemos o texto bruto retornado pelo servidor.
+    }
+
+    throw new Error(nextMessage);
   }
 
   return (await response.json()) as T;
@@ -485,6 +508,56 @@ export function useSiteContent() {
     await persistSiteContent(cloneDefaultContent());
   }, [persistSiteContent]);
 
+  const runTelegramMediaCacheJob = useCallback(async (
+    mode: TelegramCacheJobMode,
+    onStatus?: (status: TelegramCacheWarmStatus) => void,
+  ) => {
+    const response = await fetch(TELEGRAM_CACHE_WARM_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ mode }),
+    });
+    const data = await parseJsonResponse<TelegramCacheWarmStatusResponse>(response);
+    setError(null);
+    let currentStatus = data.status;
+    onStatus?.(currentStatus);
+
+    while (currentStatus.state === 'running') {
+      await wait(700);
+
+      const statusResponse = await fetch(
+        `${TELEGRAM_CACHE_WARM_ENDPOINT}?jobId=${encodeURIComponent(currentStatus.jobId)}`,
+        {
+          credentials: 'same-origin',
+        },
+      );
+      const statusData = await parseJsonResponse<TelegramCacheWarmStatusResponse>(statusResponse);
+      currentStatus = statusData.status;
+      onStatus?.(currentStatus);
+    }
+
+    if (currentStatus.state === 'failed') {
+      throw new Error(currentStatus.message || 'Falha ao enviar as midias para cache do Telegram.');
+    }
+
+    return currentStatus;
+  }, []);
+
+  const warmTelegramMediaCache = useCallback(
+    (onStatus?: (status: TelegramCacheWarmStatus) => void) =>
+      runTelegramMediaCacheJob('warm', onStatus),
+    [runTelegramMediaCacheJob],
+  );
+
+  const checkTelegramMediaCache = useCallback(
+    (onStatus?: (status: TelegramCacheWarmStatus) => void) =>
+      runTelegramMediaCacheJob('check', onStatus),
+    [runTelegramMediaCacheJob],
+  );
+
   return {
     siteContent,
     isLoading,
@@ -503,5 +576,7 @@ export function useSiteContent() {
     addHeroBackground,
     removeHeroBackground,
     clearSiteContent,
+    warmTelegramMediaCache,
+    checkTelegramMediaCache,
   };
 }

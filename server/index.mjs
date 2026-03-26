@@ -18,11 +18,14 @@ const siteContentPath = path.join(storageDir, 'site-content.json');
 const billingStatePath = path.join(storageDir, 'billing-state.json');
 const telegramFileCachePath = path.join(storageDir, 'telegram-file-cache.json');
 const distDir = path.join(projectRoot, 'dist');
+const telegramPhotoUploadLimitBytes = 10 * 1024 * 1024;
+const telegramOtherUploadLimitBytes = 50 * 1024 * 1024;
 const port = Number(process.env.PORT || 3001);
 const sitePublicUrl = process.env.SITE_PUBLIC_URL || `http://localhost:${port}`;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
 const telegramGroupUrl = process.env.TELEGRAM_GROUP_URL || sitePublicUrl;
 const telegramPrivateGroupChatId = process.env.TELEGRAM_PRIVATE_GROUP_CHAT_ID || '';
+const telegramCacheChatId = process.env.TELEGRAM_CACHE_CHAT_ID || '';
 const syncPayApiKey = process.env.SYNC_PAY_API_KEY || '';
 const syncPayApiKeyBase64 = process.env.SYNC_PAY_API_KEY_BASE64 || '';
 const syncPayClientId = process.env.SYNC_PAY_CLIENT_ID || '';
@@ -31,6 +34,9 @@ const syncPayBaseUrl = process.env.SYNC_PAY_BASE_URL || 'https://api.syncpay.pro
 const syncPayWebhookSecret = process.env.SYNC_PAY_WEBHOOK_SECRET || '';
 const paymentSimulationEnabled = ['1', 'true', 'yes', 'on'].includes(
   String(process.env.PAYMENT_SIMULATION_ENABLED || '').trim().toLowerCase(),
+);
+const paymentFakePixEnabled = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.PAYMENT_FAKE_PIX_ENABLED || '').trim().toLowerCase(),
 );
 const syncPayWebhookUrl =
   process.env.SYNC_PAY_WEBHOOK_URL ||
@@ -49,6 +55,8 @@ const subscriptionDuration7DaysSeconds = Number(process.env.SUBSCRIPTION_DURATIO
 const subscriptionDuration30DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_30D || 60);
 const previewUsageWindowSeconds = Number(process.env.PREVIEW_USAGE_WINDOW_SECONDS || 24 * 60 * 60);
 const previewUsageWindowMs = Math.max(1, previewUsageWindowSeconds) * 1000;
+const pixTtlSeconds = Number(process.env.PIX_TTL_SECONDS || 10 * 60);
+const pixTtlMs = Math.max(60, pixTtlSeconds) * 1000;
 const paymentPlans = [
   {
     id: '7d',
@@ -751,6 +759,421 @@ async function writeSiteContent(content) {
   return normalized;
 }
 
+function isBotCacheableExtension(extension) {
+  const normalizedExtension = toText(extension).toLowerCase();
+  return [
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+    '.gif',
+    '.mp4',
+    '.mov',
+    '.webm',
+    '.m4v',
+  ].includes(normalizedExtension);
+}
+
+async function collectTelegramCacheAssets(siteContent) {
+  const assets = new Map();
+
+  const addAsset = (assetUrl, mediaType) => {
+    const normalizedUrl = toText(assetUrl);
+
+    if (!normalizedUrl) {
+      return;
+    }
+
+    const currentType = assets.get(normalizedUrl);
+
+    if (!currentType || (currentType !== 'video' && mediaType === 'video')) {
+      assets.set(normalizedUrl, mediaType === 'video' ? 'video' : 'image');
+    }
+  };
+
+  for (const model of siteContent.models) {
+    for (const item of model.gallery) {
+      if (item.type === 'video') {
+        addAsset(item.src, 'video');
+        continue;
+      }
+
+      addAsset(item.thumbnail, 'image');
+    }
+  }
+
+  const botUploadsDir = path.join(uploadsDir, 'bot');
+
+  try {
+    const botEntries = await fs.readdir(botUploadsDir, { withFileTypes: true });
+
+    for (const entry of botEntries) {
+      if (!entry.isFile() || !isBotCacheableExtension(path.extname(entry.name))) {
+        continue;
+      }
+
+      const mediaType = ['.mp4', '.mov', '.webm', '.m4v'].includes(
+        path.extname(entry.name).toLowerCase(),
+      )
+        ? 'video'
+        : 'image';
+      addAsset(buildUploadUrlFromPath(path.join(botUploadsDir, entry.name)), mediaType);
+    }
+  } catch (error) {
+    if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  return Array.from(assets.entries()).map(([assetUrl, mediaType]) => ({
+    assetUrl,
+    mediaType,
+  }));
+}
+
+const telegramCacheWarmJobs = new Map();
+let activeTelegramCacheWarmJobId = null;
+
+function trimTelegramCacheWarmLogs(logs = []) {
+  return logs.slice(-18);
+}
+
+function getTelegramCacheAssetLabel(assetUrl) {
+  const filename = toText(assetUrl).split('/').pop() || assetUrl;
+
+  try {
+    return decodeURIComponent(filename);
+  } catch {
+    return filename;
+  }
+}
+
+function getTelegramCacheAssetGroupLabel(assetUrl) {
+  const normalizedUrl = toText(assetUrl);
+  const segments = normalizedUrl
+    .replace(/^\/+/, '')
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .filter(Boolean);
+
+  const uploadsIndex = segments.indexOf('uploads');
+  const firstFolder = uploadsIndex >= 0 ? segments[uploadsIndex + 1] : segments[0];
+
+  if (!firstFolder) {
+    return 'Outros';
+  }
+
+  if (firstFolder === 'bot') {
+    return 'Bot';
+  }
+
+  return firstFolder
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function getTelegramCacheUploadLimitBytes(mediaType) {
+  return toText(mediaType).toLowerCase() === 'image'
+    ? telegramPhotoUploadLimitBytes
+    : telegramOtherUploadLimitBytes;
+}
+
+function getTelegramCacheTooBigMessage() {
+  return 'Arquivo acima do limite aceito pelo Bot do Telegram para esse tipo de envio.';
+}
+
+async function getTelegramCacheAssetPrecheckError(assetUrl, mediaType) {
+  const localPath = resolveLocalUploadPath(assetUrl);
+
+  if (!localPath || !(await pathExists(localPath))) {
+    return '';
+  }
+
+  const stats = await fs.stat(localPath);
+
+  if (Number(stats.size || 0) > getTelegramCacheUploadLimitBytes(mediaType)) {
+    return getTelegramCacheTooBigMessage();
+  }
+
+  return '';
+}
+
+function normalizeTelegramCacheReason(reason) {
+  const normalizedReason = toText(reason);
+
+  if (!normalizedReason) {
+    return 'cache_failed';
+  }
+
+  if (
+    normalizedReason.toLowerCase().includes('file is too big') ||
+    normalizedReason.toLowerCase().includes('too big')
+  ) {
+    return getTelegramCacheTooBigMessage();
+  }
+
+  return normalizedReason;
+}
+
+function createTelegramCacheWarmStatus(jobId, mode = 'warm') {
+  return {
+    jobId,
+    mode,
+    state: 'running',
+    total: 0,
+    checked: 0,
+    alreadyCached: 0,
+    warmed: 0,
+    failed: 0,
+    failures: [],
+    progressPercent: 0,
+    currentStep: 'Preparando aquecimento do cache do Telegram...',
+    currentAsset: '',
+    message: '',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    items: [],
+    logs: [
+      {
+        id: `log-${randomUUID()}`,
+        level: 'info',
+        message:
+          mode === 'check'
+            ? 'Job iniciado. Preparando verificacao das midias em cache.'
+            : 'Job iniciado. Preparando lista de midias para cache.',
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+function pushTelegramCacheWarmLog(jobStatus, level, message) {
+  const entry = {
+    id: `log-${randomUUID()}`,
+    level,
+    message,
+    timestamp: new Date().toISOString(),
+  };
+
+  jobStatus.logs = trimTelegramCacheWarmLogs([...(jobStatus.logs || []), entry]);
+}
+
+function finalizeTelegramCacheWarmJob(jobStatus, state, message = '') {
+  jobStatus.state = state;
+  jobStatus.message = message;
+  jobStatus.currentAsset = '';
+  jobStatus.currentStep =
+    state === 'completed'
+      ? 'Cache do Telegram concluido.'
+      : 'Falha ao concluir o cache do Telegram.';
+  jobStatus.progressPercent = state === 'completed' ? 100 : jobStatus.progressPercent;
+  jobStatus.finishedAt = new Date().toISOString();
+}
+
+function getTelegramCacheWarmStatus(jobId) {
+  return jobId ? telegramCacheWarmJobs.get(jobId) || null : null;
+}
+
+async function runTelegramCacheWarmJob(jobStatus, telegramBot, readSiteContent) {
+  try {
+    const isCheckOnly = jobStatus.mode === 'check';
+    const siteContent = await readSiteContent();
+    const assets = await collectTelegramCacheAssets(siteContent);
+    jobStatus.total = assets.length;
+    jobStatus.progressPercent = assets.length === 0 ? 100 : 6;
+    jobStatus.currentStep =
+      assets.length === 0
+        ? isCheckOnly
+          ? 'Nenhuma midia elegivel encontrada para verificar.'
+          : 'Nenhuma midia elegivel encontrada para cache.'
+        : `Encontradas ${assets.length} midia(s) para verificar.`;
+    pushTelegramCacheWarmLog(
+      jobStatus,
+      'info',
+      assets.length === 0
+        ? isCheckOnly
+          ? 'Nenhuma midia elegivel para verificacao foi encontrada.'
+          : 'Nenhuma midia elegivel para cache foi encontrada.'
+        : isCheckOnly
+          ? `${assets.length} midia(s) elegiveis encontradas. Iniciando verificacao do cache...`
+          : `${assets.length} midia(s) elegiveis encontradas. Iniciando verificacao...`,
+    );
+
+    for (const [index, asset] of assets.entries()) {
+      const assetLabel = getTelegramCacheAssetLabel(asset.assetUrl);
+      jobStatus.currentAsset = assetLabel;
+      jobStatus.currentStep = `Verificando ${index + 1}/${assets.length}: ${assetLabel}`;
+      jobStatus.progressPercent = Math.max(
+        6,
+        Math.min(95, Math.round((index / Math.max(assets.length, 1)) * 100)),
+      );
+      pushTelegramCacheWarmLog(
+        jobStatus,
+        'info',
+        `Verificando ${index + 1}/${assets.length}: ${assetLabel}`,
+      );
+      console.log(
+        `[telegram-cache:${jobStatus.mode}] ${index + 1}/${assets.length} verificando ${assetLabel} (${asset.mediaType})`,
+      );
+
+      try {
+        const precheckError = await getTelegramCacheAssetPrecheckError(
+          asset.assetUrl,
+          asset.mediaType,
+        );
+
+        if (precheckError) {
+          jobStatus.checked += 1;
+          jobStatus.failed += 1;
+          jobStatus.failures.push({
+            assetUrl: asset.assetUrl,
+            mediaType: asset.mediaType,
+            reason: precheckError,
+          });
+          jobStatus.items.push({
+            id: `item-${randomUUID()}`,
+            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+            assetLabel,
+            assetUrl: asset.assetUrl,
+            mediaType: asset.mediaType,
+            status: 'failed',
+            reason: precheckError,
+          });
+          pushTelegramCacheWarmLog(jobStatus, 'error', `Falha em ${assetLabel}: ${precheckError}`);
+          console.error(`[telegram-cache:${jobStatus.mode}] falha em ${assetLabel}: ${precheckError}`);
+          jobStatus.progressPercent = Math.max(
+            6,
+            Math.min(98, Math.round((jobStatus.checked / Math.max(assets.length, 1)) * 100)),
+          );
+          continue;
+        }
+
+        const result = isCheckOnly
+          ? await telegramBot.checkMediaAssetCache(asset.assetUrl, asset.mediaType)
+          : await telegramBot.warmMediaAsset(asset.assetUrl, asset.mediaType);
+        jobStatus.checked += 1;
+
+        if (!result?.ok) {
+          const normalizedReason = normalizeTelegramCacheReason(result?.reason);
+          jobStatus.failed += 1;
+          jobStatus.failures.push({
+            assetUrl: asset.assetUrl,
+            mediaType: asset.mediaType,
+            reason: normalizedReason,
+          });
+          jobStatus.items.push({
+            id: `item-${randomUUID()}`,
+            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+            assetLabel,
+            assetUrl: asset.assetUrl,
+            mediaType: asset.mediaType,
+            status: 'failed',
+            reason: normalizedReason,
+          });
+          pushTelegramCacheWarmLog(
+            jobStatus,
+            'error',
+            `Falha em ${assetLabel}: ${normalizedReason}`,
+          );
+          console.error(`[telegram-cache:${jobStatus.mode}] falha em ${assetLabel}: ${normalizedReason}`);
+        } else if (result.cached) {
+          jobStatus.alreadyCached += 1;
+          jobStatus.items.push({
+            id: `item-${randomUUID()}`,
+            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+            assetLabel,
+            assetUrl: asset.assetUrl,
+            mediaType: asset.mediaType,
+            status: 'cached',
+          });
+          pushTelegramCacheWarmLog(jobStatus, 'info', `${assetLabel} ja estava em cache.`);
+          console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} ja estava em cache`);
+        } else {
+          if (isCheckOnly) {
+            jobStatus.items.push({
+              id: `item-${randomUUID()}`,
+              groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+              assetLabel,
+              assetUrl: asset.assetUrl,
+              mediaType: asset.mediaType,
+              status: 'missing',
+            });
+            pushTelegramCacheWarmLog(jobStatus, 'info', `${assetLabel} ainda nao esta em cache.`);
+            console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} ainda nao esta em cache`);
+          } else {
+            jobStatus.warmed += 1;
+            jobStatus.items.push({
+              id: `item-${randomUUID()}`,
+              groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+              assetLabel,
+              assetUrl: asset.assetUrl,
+              mediaType: asset.mediaType,
+              status: 'warmed',
+            });
+            pushTelegramCacheWarmLog(jobStatus, 'success', `${assetLabel} enviado para cache.`);
+            console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} enviado para cache`);
+          }
+        }
+      } catch (error) {
+        const reason = normalizeTelegramCacheReason(
+          error instanceof Error ? error.message : 'cache_failed',
+        );
+        jobStatus.checked += 1;
+        jobStatus.failed += 1;
+        jobStatus.failures.push({
+          assetUrl: asset.assetUrl,
+          mediaType: asset.mediaType,
+          reason,
+        });
+        jobStatus.items.push({
+          id: `item-${randomUUID()}`,
+          groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+          assetLabel,
+          assetUrl: asset.assetUrl,
+          mediaType: asset.mediaType,
+          status: 'failed',
+          reason,
+        });
+        pushTelegramCacheWarmLog(jobStatus, 'error', `Falha em ${assetLabel}: ${reason}`);
+        console.error(`[telegram-cache:${jobStatus.mode}] falha em ${assetLabel}:`, error);
+      }
+
+      jobStatus.progressPercent = Math.max(
+        6,
+        Math.min(98, Math.round((jobStatus.checked / Math.max(assets.length, 1)) * 100)),
+      );
+    }
+
+    const finalMessage =
+      jobStatus.mode === 'check'
+        ? `Verificacao concluida. ${jobStatus.checked} verificada(s), ${jobStatus.alreadyCached} ja em cache, ${jobStatus.failed} falha(s) e ${Math.max(0, jobStatus.checked - jobStatus.alreadyCached - jobStatus.failed)} fora do cache.`
+        : `Cache concluido. ${jobStatus.checked} verificada(s), ${jobStatus.alreadyCached} ja em cache, ${jobStatus.warmed} enviada(s) agora e ${jobStatus.failed} falha(s).`;
+    finalizeTelegramCacheWarmJob(jobStatus, 'completed', finalMessage);
+    pushTelegramCacheWarmLog(jobStatus, jobStatus.failed > 0 ? 'error' : 'success', finalMessage);
+    console.log(`[telegram-cache:${jobStatus.mode}] ${finalMessage}`);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Nao foi possivel concluir o cache do Telegram.';
+    finalizeTelegramCacheWarmJob(jobStatus, 'failed', message);
+    pushTelegramCacheWarmLog(jobStatus, 'error', message);
+    console.error(`[telegram-cache:${jobStatus.mode}] falha geral no job:`, error);
+  } finally {
+    if (activeTelegramCacheWarmJobId === jobStatus.jobId) {
+      activeTelegramCacheWarmJobId = null;
+    }
+  }
+}
+
 const billingStore = createBillingStore(billingStatePath);
 const syncPayClient = createSyncPayClient({
   apiKey: syncPayApiKey,
@@ -866,17 +1289,84 @@ app.put('/api/site-content', requireAdminAuth, async (req, res) => {
   res.json({ siteContent });
 });
 
+app.get('/api/admin/telegram-cache/warm-all', requireAdminAuth, (req, res) => {
+  const jobId = toText(req.query?.jobId);
+
+  if (!jobId) {
+    res.status(400).json({ message: 'Informe o jobId do cache do Telegram.' });
+    return;
+  }
+
+  const status = getTelegramCacheWarmStatus(jobId);
+
+  if (!status) {
+    res.status(404).json({ message: 'Job de cache do Telegram nao encontrado.' });
+    return;
+  }
+
+  res.json({ status });
+});
+
+app.post('/api/admin/telegram-cache/warm-all', requireAdminAuth, async (req, res) => {
+  const mode = toText(req.body?.mode) === 'check' ? 'check' : 'warm';
+
+  if (mode === 'warm' && !telegramBot.enabled) {
+    res.status(400).json({ message: 'Bot Telegram desativado no servidor.' });
+    return;
+  }
+
+  if (mode === 'warm' && !toText(telegramCacheChatId)) {
+    res
+      .status(400)
+      .json({ message: 'TELEGRAM_CACHE_CHAT_ID nao configurado para o cache do Telegram.' });
+    return;
+  }
+
+  const runningJob = activeTelegramCacheWarmJobId
+    ? getTelegramCacheWarmStatus(activeTelegramCacheWarmJobId)
+    : null;
+
+  if (runningJob && runningJob.state === 'running') {
+    res.status(202).json({ status: runningJob, reused: true });
+    return;
+  }
+
+  const jobStatus = createTelegramCacheWarmStatus(`telegram-cache-${randomUUID()}`, mode);
+  telegramCacheWarmJobs.set(jobStatus.jobId, jobStatus);
+  activeTelegramCacheWarmJobId = jobStatus.jobId;
+  void runTelegramCacheWarmJob(jobStatus, telegramBot, readSiteContent);
+
+  res.status(202).json({ status: jobStatus, reused: false });
+});
+
 app.post('/api/upload', requireAdminAuth, upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).send('Nenhum arquivo recebido.');
     return;
   }
 
+  const uploadedAssetUrl = buildUploadUrlFromPath(path.join(req.file.destination, req.file.filename));
+  const uploadedMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+
   res.status(201).json({
-    url: buildUploadUrlFromPath(path.join(req.file.destination, req.file.filename)),
+    url: uploadedAssetUrl,
     filename: req.file.filename,
     mimeType: req.file.mimetype,
     size: req.file.size,
+  });
+
+  if (Number(req.file.size || 0) > getTelegramCacheUploadLimitBytes(uploadedMediaType)) {
+    console.warn(
+      `Pulando pre-cache automatico de ${req.file.filename}: ${getTelegramCacheTooBigMessage()}`,
+    );
+    return;
+  }
+
+  void telegramBot.warmMediaAsset?.(uploadedAssetUrl, uploadedMediaType).catch((error) => {
+    const reason = normalizeTelegramCacheReason(
+      error instanceof Error ? error.message : 'cache_failed',
+    );
+    console.error('Falha ao pre-cachear midia no Telegram:', reason);
   });
 });
 
@@ -911,11 +1401,14 @@ const telegramBot = startTelegramBot({
   cacheFilePath: telegramFileCachePath,
   billingStore,
   paymentClient: syncPayClient,
+  cacheChatId: telegramCacheChatId,
   paymentConfig: {
     simulationEnabled: paymentSimulationEnabled,
+    fakePixEnabled: paymentFakePixEnabled,
     plans: paymentPlans,
     defaultPlanId: '30d',
     previewUsageWindowMs,
+    pixTtlMs,
     privateGroupChatId: telegramPrivateGroupChatId,
     webhookUrl: syncPayWebhookUrl,
     testCustomer: {
@@ -933,13 +1426,17 @@ app.listen(port, () => {
   if (telegramBot.enabled) {
     console.log('Bot Telegram iniciado com integracao ao conteudo do site.');
 
-    if (syncPayClient.enabled) {
+    if (paymentFakePixEnabled) {
+      console.log('Modo de Pix falso habilitado para testes locais.');
+    }
+
+    if (!paymentFakePixEnabled && syncPayClient.enabled) {
       console.log(
         `Syncpay habilitado para Pix de teste nos planos ${paymentPlans
           .map((plan) => `${plan.id}:${formatCurrencyBRL(plan.chargeAmount)}`)
           .join(' | ')}.`,
       );
-    } else {
+    } else if (!paymentFakePixEnabled) {
       console.log('Syncpay desativado. Defina SYNC_PAY_API_KEY para liberar pagamentos.');
     }
   } else {

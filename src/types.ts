@@ -82,3 +82,49 @@ export interface UploadAssetResult {
   mimeType: string;
   size: number;
 }
+
+export interface TelegramCacheWarmFailure {
+  assetUrl: string;
+  mediaType: MediaType;
+  reason: string;
+}
+
+export interface TelegramCacheWarmLogEntry {
+  id: string;
+  level: 'info' | 'success' | 'error';
+  message: string;
+  timestamp: string;
+}
+
+export interface TelegramCacheWarmItem {
+  id: string;
+  groupLabel: string;
+  assetLabel: string;
+  assetUrl: string;
+  mediaType: MediaType;
+  status: 'cached' | 'warmed' | 'missing' | 'failed';
+  reason?: string;
+}
+
+export interface TelegramCacheWarmSummary {
+  total: number;
+  checked: number;
+  alreadyCached: number;
+  warmed: number;
+  failed: number;
+  failures: TelegramCacheWarmFailure[];
+}
+
+export interface TelegramCacheWarmStatus extends TelegramCacheWarmSummary {
+  jobId: string;
+  mode: 'check' | 'warm';
+  state: 'running' | 'completed' | 'failed';
+  progressPercent: number;
+  currentStep: string;
+  currentAsset: string;
+  message: string;
+  startedAt: string;
+  finishedAt: string | null;
+  logs: TelegramCacheWarmLogEntry[];
+  items: TelegramCacheWarmItem[];
+}
