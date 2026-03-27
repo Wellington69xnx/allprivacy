@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MediaType } from '../types';
+import { VolumeOffIcon, VolumeOnIcon } from './icons';
 
 interface AutoplayMediaProps {
   type: MediaType;
@@ -10,6 +11,7 @@ interface AutoplayMediaProps {
   playMode?: 'viewport' | 'hover';
   preloadStrategy?: 'none' | 'metadata' | 'auto';
   fitMode?: 'cover' | 'contain';
+  showVolumeToggle?: boolean;
 }
 
 export function AutoplayMedia({
@@ -21,6 +23,7 @@ export function AutoplayMedia({
   playMode = 'viewport',
   preloadStrategy,
   fitMode = 'cover',
+  showVolumeToggle = false,
 }: AutoplayMediaProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -28,6 +31,7 @@ export function AutoplayMedia({
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isReady, setIsReady] = useState(type !== 'video');
+  const [isMuted, setIsMuted] = useState(true);
 
   const resolvedPreload =
     preloadStrategy ?? (playMode === 'hover' ? 'metadata' : 'metadata');
@@ -91,12 +95,21 @@ export function AutoplayMedia({
   }, [isHovered, isPinned, isReady, isVisible, playMode, src, type]);
 
   useEffect(() => {
+    if (type !== 'video' || !videoRef.current) {
+      return;
+    }
+
+    videoRef.current.muted = isMuted;
+  }, [isMuted, type]);
+
+  useEffect(() => {
     if (playMode === 'hover') {
       setIsVisible(false);
     }
   }, [playMode]);
 
   const isInteractive = playMode === 'hover' && type === 'video' && Boolean(src);
+  const shouldShowVolumeToggle = showVolumeToggle && type === 'video' && Boolean(src);
 
   return (
     <div
@@ -156,7 +169,7 @@ export function AutoplayMedia({
             className={`${mediaFillClassName} transition-opacity duration-300 ${
               isReady || !hasDedicatedPoster ? 'opacity-100' : 'opacity-0'
             }`}
-            muted
+            muted={isMuted}
             loop
             playsInline
             preload={resolvedPreload}
@@ -166,6 +179,25 @@ export function AutoplayMedia({
 
           {!hasDedicatedPoster && !isReady ? (
             <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(9,9,11,1),rgba(18,18,22,1),rgba(88,28,135,0.16))]" />
+          ) : null}
+
+          {shouldShowVolumeToggle ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setIsMuted((current) => !current);
+              }}
+              className="absolute bottom-3 right-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-md transition hover:bg-black/65 hover:text-white"
+              aria-label={isMuted ? `Ativar audio de ${alt}` : `Desativar audio de ${alt}`}
+            >
+              {isMuted ? (
+                <VolumeOffIcon className="h-4 w-4" />
+              ) : (
+                <VolumeOnIcon className="h-4 w-4" />
+              )}
+            </button>
           ) : null}
         </>
       ) : (

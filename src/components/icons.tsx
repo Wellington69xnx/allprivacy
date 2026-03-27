@@ -101,3 +101,39 @@ export function CloseIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function VolumeOnIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M5 14.5v-5h3.3l4.2-3.4c.4-.3 1 .1 1 .6v10.6c0 .5-.6.9-1 .6l-4.2-3.4H5Z"
+        fill="currentColor"
+      />
+      <path
+        d="M16 9.2a4.7 4.7 0 0 1 0 5.6M18.4 7a8 8 0 0 1 0 10"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function VolumeOffIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M5 14.5v-5h3.3l4.2-3.4c.4-.3 1 .1 1 .6v10.6c0 .5-.6.9-1 .6l-4.2-3.4H5Z"
+        fill="currentColor"
+      />
+      <path
+        d="m16.5 9.2 4.3 5.6M20.8 9.2l-4.3 5.6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

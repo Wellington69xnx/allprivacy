@@ -68,12 +68,12 @@ export function TelegramProof({ items }: TelegramProofProps) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, ease: 'easeOut' }}
-      className="pt-14"
+      className="pt-12 sm:pt-14"
     >
       <SectionHeader
-        eyebrow="Grupo por Dentro"
-        title="Faixa horizontal para prints reais do grupo."
-        description="Os prints ficam em formato vertical, como capturas do proprio aparelho, com setas discretas e deslizamento manual."
+        eyebrow="AllPrivacy.site"
+        title="Por dentro do grupo"
+        description="Todo conteudo organizado por topicos para melhorar sua experiencia"
       />
 
       {items.length === 0 ? (

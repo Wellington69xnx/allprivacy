@@ -4,6 +4,7 @@ import type {
   HeroBackgroundTarget,
   ModelProfile,
   SiteContent,
+  TelegramCacheSingleItemResponse,
   TelegramCacheWarmItem,
   TelegramCacheWarmStatus,
   UploadAssetOptions,
@@ -81,6 +82,10 @@ interface AdminPanelProps {
   checkTelegramMediaCache: (
     onStatus?: (status: TelegramCacheWarmStatus) => void,
   ) => Promise<TelegramCacheWarmStatus>;
+  warmSingleTelegramMediaCache: (
+    assetUrl: string,
+    mediaType: 'image' | 'video',
+  ) => Promise<TelegramCacheSingleItemResponse>;
 }
 
 interface ModelFormState {
@@ -93,11 +98,8 @@ interface ModelFormState {
 
 interface MediaFormState {
   modelId: string;
-  type: 'image' | 'video';
   title: string;
   subtitle: string;
-  thumbnail: string;
-  src: string;
 }
 
 interface GroupProofFormState {
@@ -117,7 +119,6 @@ interface ModelFileState {
 }
 
 interface MediaFileState {
-  thumbnail: File | null;
   assets: File[];
 }
 
@@ -140,11 +141,8 @@ const emptyModelForm: ModelFormState = {
 
 const emptyMediaForm: MediaFormState = {
   modelId: '',
-  type: 'image',
   title: '',
   subtitle: '',
-  thumbnail: '',
-  src: '',
 };
 
 const emptyGroupProofForm: GroupProofFormState = {
@@ -164,9 +162,19 @@ const emptyModelFiles: ModelFileState = {
 };
 
 const emptyMediaFiles: MediaFileState = {
-  thumbnail: null,
   assets: [],
 };
+
+function createClearCaptchaChallenge() {
+  const left = Math.floor(Math.random() * 8) + 2;
+  const right = Math.floor(Math.random() * 8) + 2;
+
+  return {
+    left,
+    right,
+    answer: left + right,
+  };
+}
 
 function fieldClassName() {
   return 'min-h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60 md:text-[15px]';
@@ -268,6 +276,45 @@ function PendingMediaPreview({ file }: { file: File }) {
       <div className="truncate border-t border-white/10 px-3 py-2 text-[11px] text-white/65">
         {file.name}
       </div>
+    </div>
+  );
+}
+
+function CacheWarmItemThumbnail({ item }: { item: TelegramCacheWarmItem }) {
+  if (!item.assetUrl) {
+    return (
+      <div className="h-16 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/50" />
+    );
+  }
+
+  if (item.mediaType === 'video') {
+    return (
+      <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black">
+        <video
+          src={item.assetUrl}
+          className="h-full w-full object-cover"
+          muted
+          playsInline
+          preload="metadata"
+        />
+        <span className="pointer-events-none absolute bottom-1 right-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-white/80">
+          video
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black">
+      <img
+        src={item.assetUrl}
+        alt={item.assetLabel}
+        className="h-full w-full object-cover"
+        loading="lazy"
+      />
+      <span className="pointer-events-none absolute bottom-1 right-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-white/80">
+        img
+      </span>
     </div>
   );
 }
@@ -407,40 +454,6 @@ function ModelPicker({
               }`}
             >
               {model.name}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MediaTypeSwitch({
-  value,
-  onChange,
-}: {
-  value: 'image' | 'video';
-  onChange: (value: 'image' | 'video') => void;
-}) {
-  return (
-    <div className="grid gap-2">
-      <span className={labelClassName()}>Tipo de conteudo</span>
-      <div className="grid grid-cols-2 gap-2">
-        {(['image', 'video'] as const).map((item) => {
-          const isActive = value === item;
-
-          return (
-            <button
-              key={item}
-              type="button"
-              onClick={() => onChange(item)}
-              className={`min-h-11 rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                isActive
-                  ? 'border-rose-400/40 bg-gradient-to-r from-rose-600/30 to-violet-600/30 text-white'
-                  : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08]'
-              }`}
-            >
-              {item === 'image' ? 'Imagem' : 'Video'}
             </button>
           );
         })}
@@ -706,6 +719,66 @@ function groupCacheItems(items: TelegramCacheWarmItem[]) {
   return Array.from(groups.values()).sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function summarizeCacheWarmItems(items: TelegramCacheWarmItem[]) {
+  const failures = items
+    .filter((item) => item.status === 'failed' && item.reason)
+    .map((item) => ({
+      assetUrl: item.assetUrl,
+      mediaType: item.mediaType,
+      reason: normalizeCacheReasonForDisplay(item.reason || ''),
+    }));
+
+  return {
+    checked: items.length,
+    alreadyCached: items.filter((item) => item.status === 'cached').length,
+    warmed: items.filter((item) => item.status === 'warmed').length,
+    failed: items.filter((item) => item.status === 'failed').length,
+    failures,
+  };
+}
+
+function buildUpdatedCacheWarmStatus({
+  currentStatus,
+  nextItem,
+  message,
+  level,
+}: {
+  currentStatus: TelegramCacheWarmStatus;
+  nextItem: TelegramCacheWarmItem;
+  message: string;
+  level: 'info' | 'success' | 'error';
+}) {
+  const nextItems = currentStatus.items.some((item) => item.assetUrl === nextItem.assetUrl)
+    ? currentStatus.items.map((item) => (item.assetUrl === nextItem.assetUrl ? nextItem : item))
+    : [...currentStatus.items, nextItem];
+  const nextSummary = summarizeCacheWarmItems(nextItems);
+  const now = new Date().toISOString();
+  const nextStatus: TelegramCacheWarmStatus = {
+    ...currentStatus,
+    ...nextSummary,
+    mode: 'warm',
+    state: 'completed',
+    total: Math.max(currentStatus.total, nextItems.length),
+    progressPercent: 100,
+    currentStep: message,
+    currentAsset: nextItem.assetLabel,
+    message,
+    finishedAt: now,
+    items: nextItems,
+    logs: [
+      ...(currentStatus.logs || []),
+      {
+        id: `log-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        level,
+        message,
+        timestamp: now,
+      },
+    ].slice(-80),
+  };
+
+  return normalizeStoredCacheWarmStatus(nextStatus) ?? nextStatus;
+}
+
 function getCacheGroupTone(label: string) {
   void label;
   return {
@@ -732,7 +805,6 @@ export function AdminPanel({
   addModel,
   updateModel,
   removeModel,
-  addMediaToModel,
   addMediaBatchToModel,
   removeMediaFromModel,
   addGroupProofItem,
@@ -742,6 +814,7 @@ export function AdminPanel({
   clearSiteContent,
   warmTelegramMediaCache,
   checkTelegramMediaCache,
+  warmSingleTelegramMediaCache,
 }: AdminPanelProps) {
   const initialCacheWarmState = readStoredCacheWarmState();
   const [modelForm, setModelForm] = useState(emptyModelForm);
@@ -765,6 +838,11 @@ export function AdminPanel({
     initialCacheWarmState.status,
   );
   const [expandedCacheGroups, setExpandedCacheGroups] = useState<string[]>([]);
+  const [singleCachePendingUrl, setSingleCachePendingUrl] = useState<string | null>(null);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [isClearConfirmArmed, setIsClearConfirmArmed] = useState(false);
+  const [clearCaptchaChallenge, setClearCaptchaChallenge] = useState(createClearCaptchaChallenge);
+  const [clearCaptchaInput, setClearCaptchaInput] = useState('');
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   const [editingModelForm, setEditingModelForm] = useState(emptyModelForm);
@@ -846,6 +924,13 @@ export function AdminPanel({
 
   const clearTaskProgress = () => {
     setTaskProgress(null);
+  };
+
+  const resetClearConfirmation = () => {
+    setIsClearConfirmOpen(false);
+    setIsClearConfirmArmed(false);
+    setClearCaptchaChallenge(createClearCaptchaChallenge());
+    setClearCaptchaInput('');
   };
 
   const resolveAsset = async ({
@@ -1111,73 +1196,42 @@ export function AdminPanel({
       }
 
       const modelName = selectedModel.name;
-      const hasLocalAssets = mediaFiles.assets.length > 0;
-      const isVideo = mediaForm.type === 'video';
-      const thumbnail =
-        isVideo || !hasLocalAssets
-          ? await resolveAsset({
-              file: mediaFiles.thumbnail,
-              fallbackUrl: mediaForm.thumbnail,
-              taskId: 'media',
-              label: isVideo ? 'Enviando poster' : 'Enviando imagem',
-              progressRange: hasLocalAssets ? [10, 20] : [10, 78],
-              options: {
-                bucket: 'model-media',
-                modelName,
-                mediaType: 'image',
-              },
-            })
-          : mediaForm.thumbnail.trim();
+      if (mediaFiles.assets.length === 0) {
+        setFeedback('Selecione uma ou mais imagens e/ou videos para enviar.');
+        return;
+      }
 
-      const assetUploads = hasLocalAssets
-        ? await uploadAssetsSequentially({
-            files: mediaFiles.assets,
-            taskId: 'media',
-            label: mediaForm.type === 'video' ? 'Enviando video' : 'Enviando imagem',
-            range: [20, 86],
-            optionsBuilder: () => ({
-              bucket: 'model-media',
-              modelName,
-              mediaType: mediaForm.type,
-            }),
-          })
-        : [];
+      const assetUploads = await uploadAssetsSequentially({
+        files: mediaFiles.assets,
+        taskId: 'media',
+        label: 'Enviando conteudo',
+        range: [16, 86],
+        optionsBuilder: (file) => ({
+          bucket: 'model-media',
+          modelName,
+          mediaType: file.type.startsWith('video/') ? 'video' : 'image',
+        }),
+      });
 
-      if (assetUploads.length > 0) {
-        const batchItems = assetUploads.map((assetUrl, index) => ({
+      const batchItems = assetUploads.map((assetUrl, index) => {
+        const file = mediaFiles.assets[index];
+        const mediaType = file?.type.startsWith('video/') ? 'video' : 'image';
+
+        return {
           modelId: mediaForm.modelId,
-          type: mediaForm.type,
+          type: mediaType as 'image' | 'video',
           title:
             mediaForm.title.trim() && assetUploads.length > 1
               ? `${mediaForm.title.trim()} ${index + 1}`
               : mediaForm.title.trim() || `Previa ${index + 1}`,
           subtitle: mediaForm.subtitle,
-          thumbnail: mediaForm.type === 'video' ? thumbnail || assetUrl : assetUrl,
-          src: mediaForm.type === 'video' ? assetUrl : undefined,
-        }));
+          thumbnail: assetUrl,
+          src: mediaType === 'video' ? assetUrl : undefined,
+        };
+      });
 
-        updateTaskProgress('media', 'Gravando conteudo', 92);
-        await addMediaBatchToModel(mediaForm.modelId, batchItems);
-      } else {
-        const videoSource = mediaForm.type === 'video' ? mediaForm.src.trim() : undefined;
-
-        if (mediaForm.type === 'image' && !thumbnail) {
-          setFeedback('Envie uma ou mais imagens locais ou informe a URL da previa.');
-          return;
-        }
-
-        if (mediaForm.type === 'video' && !videoSource) {
-          setFeedback('Envie um ou mais videos locais ou informe a URL do video.');
-          return;
-        }
-
-        updateTaskProgress('media', 'Gravando conteudo', 92);
-        await addMediaToModel({
-          ...mediaForm,
-          thumbnail: mediaForm.type === 'video' ? thumbnail || videoSource || '' : thumbnail,
-          src: videoSource,
-        });
-      }
+      updateTaskProgress('media', 'Gravando conteudo', 92);
+      await addMediaBatchToModel(mediaForm.modelId, batchItems);
 
       updateTaskProgress('media', 'Conteudo salvo', 100);
       setMediaForm((current) => ({
@@ -1311,6 +1365,7 @@ export function AdminPanel({
       setHeroBackgroundFile(null);
       setExpandedModelId(null);
       stopEditingModel();
+      resetClearConfirmation();
       updateTaskProgress('clear', 'Conteudo limpo', 100);
       setFeedback('Conteudo limpo. A home agora mostra somente o que voce voltar a cadastrar.');
     } catch {
@@ -1374,6 +1429,79 @@ export function AdminPanel({
     } finally {
       setActiveTask(null);
       clearTaskProgress();
+    }
+  };
+
+  const handleWarmSingleCacheItem = async (item: TelegramCacheWarmItem) => {
+    if (activeTask || singleCachePendingUrl) {
+      return;
+    }
+
+    setSingleCachePendingUrl(item.assetUrl);
+    setCacheWarmFeedback(null);
+    setCacheWarmFeedbackTone('success');
+    setCacheWarmStatus((current) =>
+      current
+        ? {
+            ...current,
+            currentStep: `Enviando ${item.assetLabel} para o cache do Telegram...`,
+            currentAsset: item.assetLabel,
+            progressPercent: Math.max(18, current.progressPercent || 0),
+          }
+        : current,
+    );
+
+    try {
+      const response = await warmSingleTelegramMediaCache(item.assetUrl, item.mediaType);
+      const nextItem = {
+        ...response.item,
+        reason: response.item.reason
+          ? normalizeCacheReasonForDisplay(response.item.reason)
+          : response.item.reason,
+      };
+      const message =
+        nextItem.status === 'warmed'
+          ? `${nextItem.assetLabel} enviada para cache com sucesso.`
+          : nextItem.status === 'cached'
+            ? `${nextItem.assetLabel} ja estava em cache.`
+            : `Falha ao enviar ${nextItem.assetLabel}: ${normalizeCacheReasonForDisplay(nextItem.reason || '')}`;
+      const tone = response.ok && nextItem.status !== 'failed' ? 'success' : 'error';
+
+      setCacheWarmStatus((current) =>
+        current
+          ? buildUpdatedCacheWarmStatus({
+              currentStatus: current,
+              nextItem,
+              message,
+              level: tone === 'success' ? 'success' : 'error',
+            })
+          : current,
+      );
+      setCacheWarmFeedback(message);
+      setCacheWarmFeedbackTone(tone);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? normalizeCacheFeedbackMessage(error.message)
+          : `Nao foi possivel enviar ${item.assetLabel} para o cache agora.`;
+      setCacheWarmFeedback(message);
+      setCacheWarmFeedbackTone('error');
+      setCacheWarmStatus((current) =>
+        current
+          ? buildUpdatedCacheWarmStatus({
+              currentStatus: current,
+              nextItem: {
+                ...item,
+                status: 'failed',
+                reason: message,
+              },
+              message,
+              level: 'error',
+            })
+          : current,
+      );
+    } finally {
+      setSingleCachePendingUrl(null);
     }
   };
 
@@ -1509,7 +1637,12 @@ export function AdminPanel({
               </button>
               <button
                 type="button"
-                onClick={() => void handleClearContent()}
+                onClick={() => {
+                  setIsClearConfirmOpen(true);
+                  setIsClearConfirmArmed(false);
+                  setClearCaptchaChallenge(createClearCaptchaChallenge());
+                  setClearCaptchaInput('');
+                }}
                 disabled={Boolean(activeTask) || isLoading}
                 className={ghostButtonClassName()}
               >
@@ -1517,6 +1650,80 @@ export function AdminPanel({
               </button>
             </div>
           </div>
+
+          {isClearConfirmOpen ? (
+            <div className="mt-4 grid gap-3 rounded-[24px] border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-50">
+              <div className="grid gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-red-100/80">
+                  Confirmacao obrigatoria
+                </span>
+                <p className="leading-6 text-red-50/90">
+                  Essa acao apaga todo o conteudo salvo no projeto. As midias em{' '}
+                  <code className="rounded bg-black/20 px-1 py-0.5 text-red-50">storage/uploads</code>{' '}
+                  continuam no disco, mas a home e o painel ficam vazios ate reconstruir o JSON.
+                </p>
+              </div>
+
+              {!isClearConfirmArmed ? (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setIsClearConfirmArmed(true)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-red-300/25 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-50 transition hover:bg-red-500/20"
+                  >
+                    Entendi, continuar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetClearConfirmation}
+                    className={ghostButtonClassName()}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <div className="grid gap-2">
+                    <span className={labelClassName()}>Captcha simples</span>
+                    <p className="text-sm text-red-50/90">
+                      Quanto e {clearCaptchaChallenge.left} + {clearCaptchaChallenge.right}?
+                    </p>
+                    <input
+                      inputMode="numeric"
+                      value={clearCaptchaInput}
+                      onChange={(event) => setClearCaptchaInput(event.target.value)}
+                      className={fieldClassName()}
+                      placeholder="Digite a resposta"
+                      disabled={Boolean(activeTask)}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => void handleClearContent()}
+                      disabled={
+                        Boolean(activeTask) ||
+                        isLoading ||
+                        Number(clearCaptchaInput) !== clearCaptchaChallenge.answer
+                      }
+                      className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-red-300/25 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-50 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {activeTask === 'clear' ? 'Limpando...' : 'Apagar todo o conteudo'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetClearConfirmation}
+                      className={ghostButtonClassName()}
+                      disabled={Boolean(activeTask)}
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
 
           <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 lg:flex lg:flex-wrap">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
@@ -1658,11 +1865,6 @@ export function AdminPanel({
                 }
               />
 
-              <MediaTypeSwitch
-                value={mediaForm.type}
-                onChange={(type) => setMediaForm((current) => ({ ...current, type }))}
-              />
-
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
                   value={mediaForm.title}
@@ -1685,8 +1887,8 @@ export function AdminPanel({
               </div>
 
               <MultiFileUploadField
-                label={mediaForm.type === 'video' ? 'Arquivos de video' : 'Arquivos de imagem'}
-                accept={mediaForm.type === 'video' ? 'video/*' : 'image/*'}
+                label="Arquivos de conteudo"
+                accept="image/*,video/*"
                 files={mediaFiles.assets}
                 onFilesChange={(files) =>
                   setMediaFiles((current) => ({
@@ -1694,51 +1896,9 @@ export function AdminPanel({
                     assets: files,
                   }))
                 }
-                helper={
-                  mediaForm.type === 'video'
-                    ? 'No painel, os videos so tocam ao tocar ou passar o mouse.'
-                    : 'As imagens selecionadas aparecem em miniatura antes do envio.'
-                }
+                helper="Selecione imagens e videos juntos. Se quiser enviar um unico arquivo, use este mesmo campo."
                 disabled={Boolean(activeTask) || isLoading}
               />
-
-              <UploadField
-                label={mediaForm.type === 'video' ? 'Poster opcional' : 'Imagem unica'}
-                accept="image/*"
-                file={mediaFiles.thumbnail}
-                urlValue={mediaForm.thumbnail}
-                onFileChange={(file) =>
-                  setMediaFiles((current) => ({ ...current, thumbnail: file }))
-                }
-                onUrlChange={(value) =>
-                  setMediaForm((current) => ({ ...current, thumbnail: value }))
-                }
-                urlPlaceholder={
-                  mediaForm.type === 'video'
-                    ? 'URL opcional do poster'
-                    : 'URL opcional da imagem'
-                }
-                helper={
-                  mediaForm.type === 'video'
-                    ? 'Se nao houver poster, o proprio video entra como fallback.'
-                    : 'Use isso apenas se nao quiser subir arquivo local.'
-                }
-                disabled={Boolean(activeTask) || isLoading}
-                previewShape={mediaForm.type === 'video' ? 'landscape' : 'portrait'}
-                previewAlt="Preview do arquivo"
-              />
-
-              {mediaForm.type === 'video' ? (
-                <input
-                  value={mediaForm.src}
-                  onChange={(event) =>
-                    setMediaForm((current) => ({ ...current, src: event.target.value }))
-                  }
-                  className={fieldClassName()}
-                  placeholder="URL opcional de um video unico"
-                  disabled={Boolean(activeTask) || isLoading}
-                />
-              ) : null}
 
               <button
                 type="submit"
@@ -2386,6 +2546,12 @@ export function AdminPanel({
                                 </div>
                                 <div className="space-y-1.5">
                                   {group.items.map((item) => (
+                                    (() => {
+                                      const canWarmIndividually = item.status === 'missing';
+                                      const isWarmingThisItem =
+                                        singleCachePendingUrl === item.assetUrl;
+
+                                      return (
                                     <div
                                       key={item.id}
                                       className={`min-w-0 overflow-hidden rounded-2xl border px-2.5 py-2 text-sm sm:px-3 ${
@@ -2399,22 +2565,54 @@ export function AdminPanel({
                                       }`}
                                     >
                                       <div className="grid min-w-0 gap-2">
-                                        <span className="min-w-0 break-all text-[13px] font-medium leading-5 sm:text-sm">
-                                          {item.assetLabel}
-                                        </span>
-                                        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
-                                          <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
-                                            {item.mediaType}
-                                          </span>
-                                          <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
-                                            {item.status === 'cached'
-                                              ? 'em cache'
-                                              : item.status === 'warmed'
-                                                ? 'enviado'
-                                                : item.status === 'missing'
-                                                  ? 'faltando'
-                                                  : 'falha'}
-                                          </span>
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                          <div className="flex min-w-0 items-start gap-3">
+                                            <CacheWarmItemThumbnail item={item} />
+                                            <div className="min-w-0 grid gap-2">
+                                              <span className="min-w-0 break-all text-[13px] font-medium leading-5 sm:text-sm">
+                                                {item.assetLabel}
+                                              </span>
+                                              <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+                                                <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
+                                                  {item.mediaType}
+                                                </span>
+                                                <span className="rounded-full border border-white/10 px-2 py-1 text-center text-[10px] uppercase tracking-[0.18em]">
+                                                  {item.status === 'cached'
+                                                    ? 'em cache'
+                                                    : item.status === 'warmed'
+                                                      ? 'enviado'
+                                                      : item.status === 'missing'
+                                                        ? 'faltando'
+                                                        : 'falha'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {canWarmIndividually ? (
+                                            <div
+                                              className="shrink-0"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                              }}
+                                              onKeyDown={(event) => {
+                                                event.stopPropagation();
+                                              }}
+                                            >
+                                              <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  void handleWarmSingleCacheItem(item);
+                                                }}
+                                                disabled={Boolean(activeTask) || Boolean(singleCachePendingUrl)}
+                                                className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-400/25 bg-amber-500/12 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-50 transition hover:bg-amber-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                                              >
+                                                {isWarmingThisItem ? 'Enviando...' : 'Enviar agora'}
+                                              </button>
+                                            </div>
+                                          ) : null}
                                         </div>
                                       </div>
                                       {item.reason ? (
@@ -2423,6 +2621,8 @@ export function AdminPanel({
                                         </div>
                                       ) : null}
                                     </div>
+                                      );
+                                    })()
                                   ))}
                                 </div>
                               </div>

@@ -128,3 +128,9 @@ export interface TelegramCacheWarmStatus extends TelegramCacheWarmSummary {
   logs: TelegramCacheWarmLogEntry[];
   items: TelegramCacheWarmItem[];
 }
+
+export interface TelegramCacheSingleItemResponse {
+  ok: boolean;
+  item: TelegramCacheWarmItem;
+  message?: string;
+}

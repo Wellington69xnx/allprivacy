@@ -6,13 +6,21 @@ import { HeroSection } from './components/HeroSection';
 import { ModelModal } from './components/ModelModal';
 import { ModelShowcasePage } from './components/ModelShowcasePage';
 import { ModelsStories } from './components/ModelsStories';
-import { PlanOptions } from './components/PlanOptions';
 import { PreviewCarousel } from './components/PreviewCarousel';
+import { SiteFooter } from './components/SiteFooter';
+import { StaticInfoPage } from './components/StaticInfoPage';
+import { TelegramCTA } from './components/TelegramCTA';
 import { TelegramProof } from './components/TelegramProof';
 import { getRandomPreviewCardsByType, heroBackdrop } from './data/models';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import { useSiteContent } from './hooks/useSiteContent';
-import { findModelByRouteSlug, getAdminPath, getHomePath } from './lib/modelRoute';
+import {
+  findModelByRouteSlug,
+  getAboutPath,
+  getAdminPath,
+  getHomePath,
+  getSupportPath,
+} from './lib/modelRoute';
 import { subscriptionPlans } from './lib/subscriptionPlans';
 import {
   getHomeTelegramPayload,
@@ -26,14 +34,28 @@ const TELEGRAM_GROUP_URL =
 const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
 
 const perks = [
-  'Entrada em um toque',
-  'Atmosfera premium mobile-first',
-  'Modal individual por modelo',
+  'Privacy',
+  'OnlyFans',
+  'XvideosRED',
+  'CloseFriends',
+  'TelegramVIP',
+  'Anal',
+  'Amador',
+  'Em Publico',
+  'Novinha +18',
+  'Vazados',
+  'Corno/HotWife',
+  'Camera Escondida',
+  'Gozada na Boca',
+  'GangBang',
+  'Agressivo',
 ];
 
 type CurrentView =
   | { type: 'site' }
   | { type: 'admin' }
+  | { type: 'about' }
+  | { type: 'support' }
   | { type: 'model'; modelSlug: string };
 
 function buildHeroBackgroundPool(
@@ -83,6 +105,14 @@ function getCurrentView(): CurrentView {
 
   if (normalizedPathname === getAdminPath()) {
     return { type: 'admin' };
+  }
+
+  if (normalizedPathname === getAboutPath()) {
+    return { type: 'about' };
+  }
+
+  if (normalizedPathname === getSupportPath()) {
+    return { type: 'support' };
   }
 
   if (normalizedPathname.startsWith('/atriz/')) {
@@ -298,10 +328,6 @@ export default function App() {
       ? getTelegramEntryUrl(TELEGRAM_BOT_USERNAME, payload)
       : TELEGRAM_GROUP_URL;
   const homeEntryHref = buildEntryHref(getHomeTelegramPayload());
-  const homePlanOptions = subscriptionPlans.map((plan) => ({
-    ...plan,
-    href: buildEntryHref(getHomeTelegramPayload(plan.id)),
-  }));
   const selectedModelPlanOptions = selectedModel
     ? subscriptionPlans.map((plan) => ({
         ...plan,
@@ -358,6 +384,52 @@ export default function App() {
     );
   }
 
+  if (currentView.type === 'about') {
+    return (
+      <StaticInfoPage
+        title="Sobre"
+        description="AllPrivacy.net reune em um so lugar o acesso ao bot, as previas do site e a entrada organizada no grupo VIP."
+        sections={[
+          {
+            title: 'Navegacao discreta',
+            body: 'A home e as paginas das modelos mostram previas e organizam o caminho ate o bot sem deixar o fluxo confuso ou poluido.',
+          },
+          {
+            title: 'Bot integrado',
+            body: 'O bot cuida dos planos, do Pix, da confirmacao do pagamento e da liberacao do acesso no grupo privado.',
+          },
+          {
+            title: 'Tudo em um so lugar',
+            body: 'Modelos, categorias, previas e acesso ficam conectados em uma experiencia unica, pensada primeiro para mobile.',
+          },
+        ]}
+      />
+    );
+  }
+
+  if (currentView.type === 'support') {
+    return (
+      <StaticInfoPage
+        title="Suporte"
+        description="Se voce tiver qualquer problema com pagamento, acesso ou liberacao no grupo, use o suporte do bot para continuar o atendimento."
+        sections={[
+          {
+            title: 'Pagamento',
+            body: 'Se o Pix ainda estiver pendente, finalize o pagamento dentro do prazo e use a verificacao no proprio bot para atualizar o status.',
+          },
+          {
+            title: 'Meu acesso',
+            body: 'Depois da aprovacao, consulte sua assinatura no menu do bot para confirmar validade, liberacao e status atual.',
+          },
+          {
+            title: 'Acesso ao grupo',
+            body: 'Se a entrada ainda nao tiver sido liberada, volte ao bot, use a verificacao do pagamento e tente novamente pela opcao Meu acesso.',
+          },
+        ]}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-ink text-white">
       <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(168,85,247,0.3),transparent_55%)] blur-3xl" />
@@ -368,9 +440,9 @@ export default function App() {
         <div className="mx-auto max-w-[1440px] px-4 pb-14 sm:px-6 lg:px-8">
           <PreviewCarousel
             id="previas"
-            eyebrow="Previas Exclusivas"
-            title="Videos selecionados"
-            description="A faixa mostra ate 7 videos e segue ate o CTA final."
+            eyebrow="AllPrivacy.site"
+            title="Videos (Previas)"
+            description=""
             items={videoPreviewCards}
             emptyMessage="Nenhum video cadastrado ainda. Adicione videos pelo painel admin para preencher esta faixa."
             ctaHref={homeEntryHref}
@@ -378,14 +450,15 @@ export default function App() {
           />
 
           <PreviewCarousel
-            eyebrow="Previas Exclusivas"
-            title="Imagens selecionadas"
-            description="A segunda faixa mostra ate 10 imagens e termina no mesmo fluxo de entrada."
+            eyebrow="AllPrivacy.site"
+            title="Imagens"
+            description=""
             items={imagePreviewCards}
             emptyMessage="Nenhuma imagem cadastrada ainda. Adicione imagens pelo painel admin para preencher esta faixa."
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
             variant="portrait"
+            sectionClassName="pt-9 sm:pt-8"
           />
 
           <ModelsStories
@@ -401,36 +474,39 @@ export default function App() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}
             transition={{ duration: 0.6, ease: 'easeOut' }}
-            className="pt-14"
+            className="pt-14 sm:pt-14"
           >
             <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent p-6 shadow-neon">
-              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.26em] text-white/60">
-                Planos de acesso
-              </span>
               <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Escolha o acesso que faz mais sentido para entrar no grupo VIP.
+                Entrar no grupo VIP
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-                Os planos comerciais ficam visiveis aqui de forma simples: 7 dias por
-                R$ 9,99 ou 30 dias por R$ 19,99, com entrada liberada pelo bot.
+                O bot informa tudo sobre o acesso e libera sua entrada em poucos passos.
               </p>
 
-              <div className="mt-5 flex flex-wrap gap-2">
+              <div className="mt-5 flex flex-wrap gap-1.5 sm:gap-2">
                 {perks.map((perk) => (
                   <span
                     key={perk}
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white/75"
+                    className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/75 sm:px-3 sm:py-2 sm:text-xs"
                   >
                     {perk}
                   </span>
                 ))}
               </div>
 
-              <PlanOptions plans={homePlanOptions} className="mt-6" />
+              <div className="mt-6 grid w-full gap-2 sm:inline-grid">
+                <TelegramCTA href={homeEntryHref} label="Entrar no Grupo" className="w-full sm:w-auto" />
+                <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+                  Acesso imediato
+                </span>
+              </div>
             </div>
           </motion.section>
         </div>
       </main>
+
+      <SiteFooter />
 
       <ModelModal
         model={selectedModel}

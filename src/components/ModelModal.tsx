@@ -110,6 +110,7 @@ export function ModelModal({ model, onClose, planOptions }: ModelModalProps) {
                               poster={item.thumbnail}
                               alt={item.title}
                               className="h-full w-full"
+                              showVolumeToggle
                             />
                           </div>
                         </article>

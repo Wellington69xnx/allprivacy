@@ -55,8 +55,10 @@ const subscriptionDuration7DaysSeconds = Number(process.env.SUBSCRIPTION_DURATIO
 const subscriptionDuration30DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_30D || 60);
 const previewUsageWindowSeconds = Number(process.env.PREVIEW_USAGE_WINDOW_SECONDS || 24 * 60 * 60);
 const previewUsageWindowMs = Math.max(1, previewUsageWindowSeconds) * 1000;
-const pixTtlSeconds = Number(process.env.PIX_TTL_SECONDS || 10 * 60);
+const pixTtlSeconds = Number(process.env.PIX_TTL_SECONDS || 8 * 60);
 const pixTtlMs = Math.max(60, pixTtlSeconds) * 1000;
+const pixReminderSeconds = Number(process.env.PIX_REMINDER_SECONDS || 4 * 60);
+const pixReminderMs = Math.max(0, pixReminderSeconds) * 1000;
 const paymentPlans = [
   {
     id: '7d',
@@ -282,6 +284,55 @@ async function countFilesWithPrefix(directory, prefix) {
   }
 }
 
+function escapeRegexPattern(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function getNextIndexedFilename(directory, baseFilename, extension, preferBareFirst = false) {
+  let entries = [];
+
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  const normalizedBase = baseFilename.toLowerCase();
+  const numberedPattern = new RegExp(
+    `^${escapeRegexPattern(normalizedBase)} (\\d+)(?: \\d+)?$`,
+  );
+  let bareExists = false;
+  let highestIndex = 0;
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const normalizedName = path.parse(entry.name).name.toLowerCase();
+
+    if (normalizedName === normalizedBase) {
+      bareExists = true;
+      highestIndex = Math.max(highestIndex, 1);
+      continue;
+    }
+
+    const match = normalizedName.match(numberedPattern);
+
+    if (match) {
+      highestIndex = Math.max(highestIndex, Number(match[1] || 0));
+    }
+  }
+
+  if (preferBareFirst && !bareExists && highestIndex === 0) {
+    return `${baseFilename}${extension}`;
+  }
+
+  return `${baseFilename} ${Math.max(1, highestIndex + 1)}${extension}`;
+}
+
 function buildUploadUrlFromPath(filePath) {
   const relativePath = path.relative(uploadsDir, filePath);
   const publicPath = relativePath
@@ -378,13 +429,12 @@ async function buildUploadPlanFromMeta(meta, file) {
   await fs.mkdir(directory, { recursive: true });
 
   const extension = resolveExtension(file.originalname, file.mimetype);
-  const existingCount = await countFilesWithPrefix(directory, baseFilename);
-  const filename =
-    bucket === 'model-profile' || bucket === 'model-cover'
-      ? existingCount === 0
-        ? `${baseFilename}${extension}`
-        : `${baseFilename} ${existingCount + 1}${extension}`
-      : `${baseFilename} ${existingCount + 1}${extension}`;
+  const filename = await getNextIndexedFilename(
+    directory,
+    baseFilename,
+    extension,
+    bucket === 'model-profile' || bucket === 'model-cover',
+  );
 
   return {
     directory,
@@ -458,6 +508,17 @@ async function migrateAssetUrl(assetUrl, meta, movedAssets) {
   const sourcePath = resolveLocalUploadPath(normalizedUrl);
 
   if (!sourcePath || !(await pathExists(sourcePath))) {
+    return normalizedUrl;
+  }
+
+  const relativeSourcePath = path.relative(uploadsDir, sourcePath);
+  const relativeSegments = relativeSourcePath.split(path.sep).filter(Boolean);
+  const firstSegment = relativeSegments[0] || '';
+
+  // Arquivos ja organizados em subpastas nao devem ser "migrados" de novo a cada restart.
+  // A migracao aqui existe so para ativos antigos soltos na raiz ou em _legacy-root.
+  if (relativeSegments.length > 1 && firstSegment !== '_legacy-root') {
+    movedAssets.set(normalizedUrl, normalizedUrl);
     return normalizedUrl;
   }
 
@@ -724,6 +785,125 @@ function normalizeSiteContent(payload) {
   };
 }
 
+const syncableModelImageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+const syncableModelVideoExtensions = new Set(['.mp4', '.mov', '.webm', '.m4v']);
+
+function inferModelGalleryMediaType(filename) {
+  const normalizedFilename = toText(filename).toLowerCase();
+
+  if (
+    normalizedFilename.includes('foto de perfil') ||
+    normalizedFilename.includes('foto de capa')
+  ) {
+    return '';
+  }
+
+  const extension = path.extname(normalizedFilename);
+
+  if (syncableModelVideoExtensions.has(extension)) {
+    return 'video';
+  }
+
+  if (syncableModelImageExtensions.has(extension)) {
+    return 'image';
+  }
+
+  return '';
+}
+
+async function syncSiteContentWithRecentUploads(siteContent, siteContentUpdatedAtMs = 0) {
+  let changed = false;
+  const nextContent = {
+    ...siteContent,
+    models: [],
+  };
+
+  for (const model of siteContent.models) {
+    const modelDirectory = path.join(
+      uploadsDir,
+      sanitizeFolderSegment(toText(model.name), 'modelo'),
+    );
+
+    const referencedAssetUrls = new Set(
+      [
+        toText(model.profileImage),
+        toText(model.coverImage),
+        ...model.gallery.flatMap((item) => [toText(item.thumbnail), toText(item.src)]),
+      ].filter(Boolean),
+    );
+    const nextGallery = [...model.gallery];
+
+    try {
+      const entries = await fs.readdir(modelDirectory, { withFileTypes: true });
+      const filesWithStats = [];
+
+      for (const entry of entries) {
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        const mediaType = inferModelGalleryMediaType(entry.name);
+
+        if (!mediaType) {
+          continue;
+        }
+
+        const absolutePath = path.join(modelDirectory, entry.name);
+        const stats = await fs.stat(absolutePath);
+
+        if (Number(stats.mtimeMs || 0) <= Number(siteContentUpdatedAtMs || 0) + 1000) {
+          continue;
+        }
+
+        filesWithStats.push({
+          entry,
+          absolutePath,
+          mtimeMs: Number(stats.mtimeMs || 0),
+          mediaType,
+        });
+      }
+
+      filesWithStats.sort((left, right) => left.mtimeMs - right.mtimeMs);
+
+      let previewIndex = nextGallery.length + 1;
+
+      for (const file of filesWithStats) {
+        const assetUrl = buildUploadUrlFromPath(file.absolutePath);
+
+        if (referencedAssetUrls.has(assetUrl)) {
+          continue;
+        }
+
+        referencedAssetUrls.add(assetUrl);
+        changed = true;
+        nextGallery.push({
+          id: createId('media'),
+          type: file.mediaType,
+          title: `Previa ${previewIndex}`,
+          subtitle: '',
+          thumbnail: assetUrl,
+          src: file.mediaType === 'video' ? assetUrl : undefined,
+        });
+        previewIndex += 1;
+      }
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+
+    nextContent.models.push({
+      ...model,
+      gallery: nextGallery,
+    });
+  }
+
+  return {
+    changed,
+    siteContent: nextContent,
+  };
+}
+
 async function ensureStorage() {
   await fs.mkdir(uploadsDir, { recursive: true });
 
@@ -743,7 +923,19 @@ async function readSiteContent() {
 
   try {
     const raw = await fs.readFile(siteContentPath, 'utf8');
-    return normalizeSiteContent(JSON.parse(raw));
+    const normalized = normalizeSiteContent(JSON.parse(raw));
+    const siteContentStats = await fs.stat(siteContentPath);
+    const synced = await syncSiteContentWithRecentUploads(
+      normalized,
+      Number(siteContentStats.mtimeMs || 0),
+    );
+
+    if (synced.changed) {
+      await fs.writeFile(siteContentPath, `${JSON.stringify(synced.siteContent, null, 2)}\n`, 'utf8');
+      return synced.siteContent;
+    }
+
+    return normalized;
   } catch {
     return cloneDefaultSiteContent();
   }
@@ -755,6 +947,12 @@ async function writeSiteContent(content) {
   const normalized = normalizeSiteContent(content);
 
   await fs.writeFile(siteContentPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  console.log(
+    `[site-content] salvo em disco com ${normalized.models.length} modelo(s) e ${normalized.models.reduce(
+      (total, model) => total + model.gallery.length,
+      0,
+    )} midia(s).`,
+  );
 
   return normalized;
 }
@@ -798,7 +996,7 @@ async function collectTelegramCacheAssets(siteContent) {
         continue;
       }
 
-      addAsset(item.thumbnail, 'image');
+      addAsset(item.src || item.thumbnail, 'image');
     }
   }
 
@@ -982,6 +1180,72 @@ function getTelegramCacheWarmStatus(jobId) {
   return jobId ? telegramCacheWarmJobs.get(jobId) || null : null;
 }
 
+async function resolveTelegramCacheAssetResult(telegramBot, asset, mode = 'warm') {
+  const assetLabel = getTelegramCacheAssetLabel(asset.assetUrl);
+  const precheckError = await getTelegramCacheAssetPrecheckError(asset.assetUrl, asset.mediaType);
+
+  if (precheckError) {
+    return {
+      ok: false,
+      item: {
+        id: `item-${randomUUID()}`,
+        groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+        assetLabel,
+        assetUrl: asset.assetUrl,
+        mediaType: asset.mediaType,
+        status: 'failed',
+        reason: precheckError,
+      },
+    };
+  }
+
+  const result =
+    mode === 'check'
+      ? await telegramBot.checkMediaAssetCache(asset.assetUrl, asset.mediaType)
+      : await telegramBot.warmMediaAsset(asset.assetUrl, asset.mediaType);
+
+  if (!result?.ok) {
+    return {
+      ok: false,
+      item: {
+        id: `item-${randomUUID()}`,
+        groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+        assetLabel,
+        assetUrl: asset.assetUrl,
+        mediaType: asset.mediaType,
+        status: 'failed',
+        reason: normalizeTelegramCacheReason(result?.reason),
+      },
+    };
+  }
+
+  if (result.cached) {
+    return {
+      ok: true,
+      item: {
+        id: `item-${randomUUID()}`,
+        groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+        assetLabel,
+        assetUrl: asset.assetUrl,
+        mediaType: asset.mediaType,
+        status: 'cached',
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    item: {
+      id: `item-${randomUUID()}`,
+      groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
+      assetLabel,
+      assetUrl: asset.assetUrl,
+      mediaType: asset.mediaType,
+      status: mode === 'check' ? 'missing' : 'warmed',
+    },
+  };
+}
+
 async function runTelegramCacheWarmJob(jobStatus, telegramBot, readSiteContent) {
   try {
     const isCheckOnly = jobStatus.mode === 'check';
@@ -1025,99 +1289,37 @@ async function runTelegramCacheWarmJob(jobStatus, telegramBot, readSiteContent) 
       );
 
       try {
-        const precheckError = await getTelegramCacheAssetPrecheckError(
-          asset.assetUrl,
-          asset.mediaType,
-        );
-
-        if (precheckError) {
-          jobStatus.checked += 1;
-          jobStatus.failed += 1;
-          jobStatus.failures.push({
-            assetUrl: asset.assetUrl,
-            mediaType: asset.mediaType,
-            reason: precheckError,
-          });
-          jobStatus.items.push({
-            id: `item-${randomUUID()}`,
-            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
-            assetLabel,
-            assetUrl: asset.assetUrl,
-            mediaType: asset.mediaType,
-            status: 'failed',
-            reason: precheckError,
-          });
-          pushTelegramCacheWarmLog(jobStatus, 'error', `Falha em ${assetLabel}: ${precheckError}`);
-          console.error(`[telegram-cache:${jobStatus.mode}] falha em ${assetLabel}: ${precheckError}`);
-          jobStatus.progressPercent = Math.max(
-            6,
-            Math.min(98, Math.round((jobStatus.checked / Math.max(assets.length, 1)) * 100)),
-          );
-          continue;
-        }
-
-        const result = isCheckOnly
-          ? await telegramBot.checkMediaAssetCache(asset.assetUrl, asset.mediaType)
-          : await telegramBot.warmMediaAsset(asset.assetUrl, asset.mediaType);
+        const result = await resolveTelegramCacheAssetResult(telegramBot, asset, jobStatus.mode);
         jobStatus.checked += 1;
 
         if (!result?.ok) {
-          const normalizedReason = normalizeTelegramCacheReason(result?.reason);
+          const normalizedReason = normalizeTelegramCacheReason(result?.item?.reason);
           jobStatus.failed += 1;
           jobStatus.failures.push({
             assetUrl: asset.assetUrl,
             mediaType: asset.mediaType,
             reason: normalizedReason,
           });
-          jobStatus.items.push({
-            id: `item-${randomUUID()}`,
-            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
-            assetLabel,
-            assetUrl: asset.assetUrl,
-            mediaType: asset.mediaType,
-            status: 'failed',
-            reason: normalizedReason,
-          });
+          jobStatus.items.push({ ...result.item, reason: normalizedReason });
           pushTelegramCacheWarmLog(
             jobStatus,
             'error',
             `Falha em ${assetLabel}: ${normalizedReason}`,
           );
           console.error(`[telegram-cache:${jobStatus.mode}] falha em ${assetLabel}: ${normalizedReason}`);
-        } else if (result.cached) {
+        } else if (result.item?.status === 'cached') {
           jobStatus.alreadyCached += 1;
-          jobStatus.items.push({
-            id: `item-${randomUUID()}`,
-            groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
-            assetLabel,
-            assetUrl: asset.assetUrl,
-            mediaType: asset.mediaType,
-            status: 'cached',
-          });
+          jobStatus.items.push(result.item);
           pushTelegramCacheWarmLog(jobStatus, 'info', `${assetLabel} ja estava em cache.`);
           console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} ja estava em cache`);
         } else {
           if (isCheckOnly) {
-            jobStatus.items.push({
-              id: `item-${randomUUID()}`,
-              groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
-              assetLabel,
-              assetUrl: asset.assetUrl,
-              mediaType: asset.mediaType,
-              status: 'missing',
-            });
+            jobStatus.items.push(result.item);
             pushTelegramCacheWarmLog(jobStatus, 'info', `${assetLabel} ainda nao esta em cache.`);
             console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} ainda nao esta em cache`);
           } else {
             jobStatus.warmed += 1;
-            jobStatus.items.push({
-              id: `item-${randomUUID()}`,
-              groupLabel: getTelegramCacheAssetGroupLabel(asset.assetUrl),
-              assetLabel,
-              assetUrl: asset.assetUrl,
-              mediaType: asset.mediaType,
-              status: 'warmed',
-            });
+            jobStatus.items.push(result.item);
             pushTelegramCacheWarmLog(jobStatus, 'success', `${assetLabel} enviado para cache.`);
             console.log(`[telegram-cache:${jobStatus.mode}] ${assetLabel} enviado para cache`);
           }
@@ -1339,6 +1541,59 @@ app.post('/api/admin/telegram-cache/warm-all', requireAdminAuth, async (req, res
   res.status(202).json({ status: jobStatus, reused: false });
 });
 
+app.post('/api/admin/telegram-cache/warm-one', requireAdminAuth, async (req, res) => {
+  const assetUrl = toText(req.body?.assetUrl);
+  const mediaType = toText(req.body?.mediaType).toLowerCase() === 'video' ? 'video' : 'image';
+
+  if (!assetUrl) {
+    res.status(400).json({ message: 'assetUrl obrigatorio.' });
+    return;
+  }
+
+  if (!telegramBot.enabled) {
+    res.status(400).json({ message: 'Bot Telegram desativado no servidor.' });
+    return;
+  }
+
+  if (!toText(telegramCacheChatId)) {
+    res
+      .status(400)
+      .json({ message: 'TELEGRAM_CACHE_CHAT_ID nao configurado para o cache do Telegram.' });
+    return;
+  }
+
+  try {
+    const result = await resolveTelegramCacheAssetResult(
+      telegramBot,
+      { assetUrl, mediaType },
+      'warm',
+    );
+
+    res.json({
+      item: result.item,
+      ok: result.ok,
+    });
+  } catch (error) {
+    const reason = normalizeTelegramCacheReason(
+      error instanceof Error ? error.message : 'cache_failed',
+    );
+
+    res.json({
+      ok: false,
+      message: reason,
+      item: {
+        id: `item-${randomUUID()}`,
+        groupLabel: getTelegramCacheAssetGroupLabel(assetUrl),
+        assetLabel: getTelegramCacheAssetLabel(assetUrl),
+        assetUrl,
+        mediaType,
+        status: 'failed',
+        reason,
+      },
+    });
+  }
+});
+
 app.post('/api/upload', requireAdminAuth, upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).send('Nenhum arquivo recebido.');
@@ -1347,26 +1602,17 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), (req, res) => {
 
   const uploadedAssetUrl = buildUploadUrlFromPath(path.join(req.file.destination, req.file.filename));
   const uploadedMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+  const uploadMeta = readUploadMeta(req);
+
+  console.log(
+    `[upload] bucket=${toText(uploadMeta.bucket) || 'default'} model=${toText(uploadMeta.modelName) || '-'} file=${req.file.filename} type=${uploadedMediaType} url=${uploadedAssetUrl}`,
+  );
 
   res.status(201).json({
     url: uploadedAssetUrl,
     filename: req.file.filename,
     mimeType: req.file.mimetype,
     size: req.file.size,
-  });
-
-  if (Number(req.file.size || 0) > getTelegramCacheUploadLimitBytes(uploadedMediaType)) {
-    console.warn(
-      `Pulando pre-cache automatico de ${req.file.filename}: ${getTelegramCacheTooBigMessage()}`,
-    );
-    return;
-  }
-
-  void telegramBot.warmMediaAsset?.(uploadedAssetUrl, uploadedMediaType).catch((error) => {
-    const reason = normalizeTelegramCacheReason(
-      error instanceof Error ? error.message : 'cache_failed',
-    );
-    console.error('Falha ao pre-cachear midia no Telegram:', reason);
   });
 });
 
@@ -1409,6 +1655,7 @@ const telegramBot = startTelegramBot({
     defaultPlanId: '30d',
     previewUsageWindowMs,
     pixTtlMs,
+    pixReminderMs,
     privateGroupChatId: telegramPrivateGroupChatId,
     webhookUrl: syncPayWebhookUrl,
     testCustomer: {

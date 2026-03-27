@@ -659,13 +659,88 @@ function shuffleArray(items) {
   return next;
 }
 
-function getRandomModelMediaSelection(model) {
-  const gallery = Array.isArray(model.gallery) ? model.gallery : [];
-  const videos = shuffleArray(
-    gallery.filter((item) => item.type === 'video' && toText(item.src)),
+const previewRecentHistoryLimit = 18;
+
+function buildPreviewMediaKey(item) {
+  const modelSlug = toText(item?.modelSlug);
+  const mediaId = toText(item?.id);
+  const assetUrl =
+    toText(item?.src) || toText(item?.thumbnail) || toText(item?.assetUrl) || toText(item?.coverImage);
+
+  return [modelSlug, toText(item?.type), mediaId || assetUrl].filter(Boolean).join('|');
+}
+
+function getPreviewRecentKeys(customer) {
+  return new Set(
+    Array.isArray(customer?.previewRecentMediaKeys)
+      ? customer.previewRecentMediaKeys.map((item) => toText(item)).filter(Boolean)
+      : [],
   );
-  const images = shuffleArray(
+}
+
+async function rememberPreviewMediaItems(chatId, items, options) {
+  const nextKeys = items.map((item) => buildPreviewMediaKey(item)).filter(Boolean);
+
+  if (nextKeys.length === 0) {
+    return null;
+  }
+
+  const customer = (await options.billingStore.getCustomer(chatId)) || {};
+  const currentKeys = Array.isArray(customer.previewRecentMediaKeys)
+    ? customer.previewRecentMediaKeys.map((item) => toText(item)).filter(Boolean)
+    : [];
+  const mergedKeys = [...nextKeys, ...currentKeys.filter((item) => !nextKeys.includes(item))].slice(
+    0,
+    previewRecentHistoryLimit,
+  );
+
+  return options.billingStore.upsertCustomer(chatId, {
+    previewRecentMediaKeys: mergedKeys,
+  });
+}
+
+function getMediaRecencyScore(item) {
+  const id = toText(item?.id);
+  const match = id.match(/^media-(\d{10,})-/);
+
+  if (match) {
+    return Number(match[1] || 0);
+  }
+
+  return 0;
+}
+
+function shuffleWithPreviewVariety(items, recentPreviewKeys = new Set()) {
+  const shuffledItems = shuffleArray(items);
+
+  if (recentPreviewKeys.size === 0) {
+    return shuffledItems;
+  }
+
+  const freshItems = [];
+  const repeatedItems = [];
+
+  for (const item of shuffledItems) {
+    if (recentPreviewKeys.has(buildPreviewMediaKey(item))) {
+      repeatedItems.push(item);
+      continue;
+    }
+
+    freshItems.push(item);
+  }
+
+  return [...freshItems, ...repeatedItems];
+}
+
+function getRandomModelMediaSelection(model, recentPreviewKeys = new Set()) {
+  const gallery = Array.isArray(model.gallery) ? model.gallery : [];
+  const videos = shuffleWithPreviewVariety(
+    gallery.filter((item) => item.type === 'video' && toText(item.src)),
+    recentPreviewKeys,
+  );
+  const images = shuffleWithPreviewVariety(
     gallery.filter((item) => item.type === 'image' && toText(item.thumbnail)),
+    recentPreviewKeys,
   );
 
   const pickedVideos = videos.slice(0, 2);
@@ -691,12 +766,13 @@ function getRandomModelMediaSelection(model) {
     });
   }
 
-  const remainingMedia = shuffleArray(
+  const remainingMedia = shuffleWithPreviewVariety(
     gallery.filter(
       (item) =>
         !selectedIds.has(item.id) &&
         (item.type === 'video' ? toText(item.src) : toText(item.thumbnail)),
     ),
+    recentPreviewKeys,
   );
 
   for (const item of remainingMedia) {
@@ -710,8 +786,8 @@ function getRandomModelMediaSelection(model) {
   return selection.slice(0, 3);
 }
 
-function pickDistinctMedia(items, count, excludedModelSlugs = new Set()) {
-  const shuffledItems = shuffleArray(items);
+function pickDistinctMedia(items, count, excludedModelSlugs = new Set(), recentPreviewKeys = new Set()) {
+  const shuffledItems = shuffleWithPreviewVariety(items, recentPreviewKeys);
   const selected = [];
   const usedModelSlugs = new Set(excludedModelSlugs);
 
@@ -752,7 +828,7 @@ function pickDistinctMedia(items, count, excludedModelSlugs = new Set()) {
   return selected;
 }
 
-function getRandomSitewideMediaSelection(siteContent) {
+function getRandomSitewideMediaSelection(siteContent, recentPreviewKeys = new Set()) {
   const models = Array.isArray(siteContent?.models) ? siteContent.models : [];
   const videos = [];
   const images = [];
@@ -772,11 +848,12 @@ function getRandomSitewideMediaSelection(siteContent) {
     }
   }
 
-  const selectedVideos = pickDistinctMedia(videos, 2);
+  const selectedVideos = pickDistinctMedia(videos, 2, new Set(), recentPreviewKeys);
   const selectedImages = pickDistinctMedia(
     images,
     1,
     new Set(selectedVideos.map((item) => toText(item.modelSlug)).filter(Boolean)),
+    recentPreviewKeys,
   );
 
   return [...selectedVideos, ...selectedImages];
@@ -855,6 +932,39 @@ function createTelegramFileCache(cacheFilePath) {
   let cache = {};
   let isLoaded = false;
   let writeQueue = Promise.resolve();
+  let cacheFileUpdatedAtMs = 0;
+
+  function normalizeCacheEntry(entry) {
+    if (!entry) {
+      return {
+        fileId: '',
+        signature: '',
+        legacy: false,
+      };
+    }
+
+    if (typeof entry === 'string') {
+      return {
+        fileId: toText(entry),
+        signature: '',
+        legacy: true,
+      };
+    }
+
+    if (typeof entry === 'object') {
+      return {
+        fileId: toText(entry.fileId || entry.file_id || entry.id),
+        signature: toText(entry.signature),
+        legacy: false,
+      };
+    }
+
+    return {
+      fileId: '',
+      signature: '',
+      legacy: false,
+    };
+  }
 
   async function ensureLoaded() {
     if (isLoaded || !cacheFilePath) {
@@ -867,21 +977,36 @@ function createTelegramFileCache(cacheFilePath) {
       const raw = await fs.readFile(cacheFilePath, 'utf8');
       const parsed = JSON.parse(raw);
       cache = parsed && typeof parsed === 'object' ? parsed : {};
+      const stats = await fs.stat(cacheFilePath);
+      cacheFileUpdatedAtMs = Number(stats.mtimeMs || 0);
     } catch {
       cache = {};
+      cacheFileUpdatedAtMs = 0;
     }
   }
 
   return {
-    async get(assetUrl) {
+    async getEntry(assetUrl) {
       const normalizedAssetUrl = toText(assetUrl);
 
       if (!normalizedAssetUrl) {
-        return '';
+        return {
+          fileId: '',
+          signature: '',
+          legacy: false,
+          cacheFileUpdatedAtMs: 0,
+        };
       }
 
       await ensureLoaded();
-      return toText(cache[normalizedAssetUrl]);
+      return {
+        ...normalizeCacheEntry(cache[normalizedAssetUrl]),
+        cacheFileUpdatedAtMs,
+      };
+    },
+    async get(assetUrl) {
+      const entry = await this.getEntry(assetUrl);
+      return entry.fileId;
     },
     async delete(assetUrl) {
       const normalizedAssetUrl = toText(assetUrl);
@@ -901,6 +1026,7 @@ function createTelegramFileCache(cacheFilePath) {
         .then(async () => {
           await fs.mkdir(path.dirname(cacheFilePath), { recursive: true });
           await fs.writeFile(cacheFilePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8');
+          cacheFileUpdatedAtMs = Date.now();
         })
         .catch((error) => {
           console.error('Falha ao limpar cache de arquivos do Telegram:', error);
@@ -908,9 +1034,10 @@ function createTelegramFileCache(cacheFilePath) {
 
       await writeQueue;
     },
-    async set(assetUrl, fileId) {
+    async set(assetUrl, fileId, metadata = {}) {
       const normalizedAssetUrl = toText(assetUrl);
       const normalizedFileId = toText(fileId);
+      const normalizedSignature = toText(metadata.signature);
 
       if (!normalizedAssetUrl || !normalizedFileId || !cacheFilePath) {
         return;
@@ -918,15 +1045,25 @@ function createTelegramFileCache(cacheFilePath) {
 
       await ensureLoaded();
 
-      if (cache[normalizedAssetUrl] === normalizedFileId) {
+      const currentEntry = normalizeCacheEntry(cache[normalizedAssetUrl]);
+
+      if (
+        currentEntry.fileId === normalizedFileId &&
+        currentEntry.signature === normalizedSignature
+      ) {
         return;
       }
 
-      cache[normalizedAssetUrl] = normalizedFileId;
+      cache[normalizedAssetUrl] = {
+        fileId: normalizedFileId,
+        signature: normalizedSignature,
+        updatedAt: new Date().toISOString(),
+      };
       writeQueue = writeQueue
         .then(async () => {
           await fs.mkdir(path.dirname(cacheFilePath), { recursive: true });
           await fs.writeFile(cacheFilePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8');
+          cacheFileUpdatedAtMs = Date.now();
         })
         .catch((error) => {
           console.error('Falha ao salvar cache de arquivos do Telegram:', error);
@@ -935,6 +1072,115 @@ function createTelegramFileCache(cacheFilePath) {
       await writeQueue;
     },
   };
+}
+
+async function getLocalAssetSignatureInfo(assetUrl, resolveLocalAssetPath, preferredFilePath = '') {
+  const candidatePaths = [toText(preferredFilePath)];
+
+  if (typeof resolveLocalAssetPath === 'function') {
+    candidatePaths.push(toText(resolveLocalAssetPath(assetUrl)));
+  }
+
+  for (const candidatePath of candidatePaths.filter(Boolean)) {
+    try {
+      const stats = await fs.stat(candidatePath);
+      return {
+        signature: `${Number(stats.size || 0)}:${Math.round(Number(stats.mtimeMs || 0))}`,
+        mtimeMs: Math.round(Number(stats.mtimeMs || 0)),
+        filePath: candidatePath,
+      };
+    } catch {
+      // Continua tentando outros caminhos possiveis.
+    }
+  }
+
+  return {
+    signature: '',
+    mtimeMs: 0,
+    filePath: '',
+  };
+}
+
+async function computeLocalAssetSignature(assetUrl, resolveLocalAssetPath, preferredFilePath = '') {
+  const info = await getLocalAssetSignatureInfo(
+    assetUrl,
+    resolveLocalAssetPath,
+    preferredFilePath,
+  );
+  return info.signature;
+}
+
+async function getValidCachedFileId(
+  assetUrl,
+  resolveLocalAssetPath,
+  telegramFileCache,
+  preferredFilePath = '',
+) {
+  const normalizedAssetUrl = toText(assetUrl);
+
+  if (!normalizedAssetUrl) {
+    return '';
+  }
+
+  const cacheEntry = await telegramFileCache?.getEntry?.(normalizedAssetUrl);
+  const cachedFileId = toText(cacheEntry?.fileId);
+
+  if (!cachedFileId) {
+    return '';
+  }
+
+  const currentSignatureInfo = await getLocalAssetSignatureInfo(
+    normalizedAssetUrl,
+    resolveLocalAssetPath,
+    preferredFilePath,
+  );
+  const currentSignature = currentSignatureInfo.signature;
+
+  if (!currentSignature) {
+    return cachedFileId;
+  }
+
+  if (!toText(cacheEntry?.signature)) {
+    if (
+      Boolean(cacheEntry?.legacy) &&
+      Number(cacheEntry?.cacheFileUpdatedAtMs || 0) > 0 &&
+      currentSignatureInfo.mtimeMs > Number(cacheEntry?.cacheFileUpdatedAtMs || 0) + 1000
+    ) {
+      await telegramFileCache?.delete?.(normalizedAssetUrl);
+      return '';
+    }
+
+    return cachedFileId;
+  }
+
+  if (toText(cacheEntry?.signature) !== currentSignature) {
+    await telegramFileCache?.delete?.(normalizedAssetUrl);
+    return '';
+  }
+
+  return cachedFileId;
+}
+
+async function storeTelegramCachedFileId(
+  telegramFileCache,
+  assetUrl,
+  fileId,
+  resolveLocalAssetPath,
+  preferredFilePath = '',
+) {
+  const normalizedFileId = toText(fileId);
+
+  if (!normalizedFileId) {
+    return;
+  }
+
+  const signature = await computeLocalAssetSignature(
+    assetUrl,
+    resolveLocalAssetPath,
+    preferredFilePath,
+  );
+
+  await telegramFileCache?.set?.(assetUrl, normalizedFileId, { signature });
 }
 
 async function telegramRequest(token, method, payload) {
@@ -1049,7 +1295,15 @@ async function resolveTelegramMediaSource(
     return null;
   }
 
-  const cachedFileId = skipCache ? '' : await telegramFileCache?.get(normalizedAssetUrl);
+  const localAssetPath = resolveLocalAssetPath?.(normalizedAssetUrl);
+  const cachedFileId = skipCache
+    ? ''
+    : await getValidCachedFileId(
+        normalizedAssetUrl,
+        resolveLocalAssetPath,
+        telegramFileCache,
+        localAssetPath,
+      );
 
   if (cachedFileId) {
     return {
@@ -1066,8 +1320,6 @@ async function resolveTelegramMediaSource(
       assetUrl: normalizedAssetUrl,
     };
   }
-
-  const localAssetPath = resolveLocalAssetPath?.(normalizedAssetUrl);
 
   if (localAssetPath && (await pathExists(localAssetPath))) {
     return {
@@ -1097,9 +1349,15 @@ function isTelegramInvalidCachedFileError(error) {
   );
 }
 
-async function validateTelegramCachedFile(token, assetUrl, telegramFileCache) {
+async function validateTelegramCachedFile(
+  token,
+  assetUrl,
+  telegramFileCache,
+  resolveLocalAssetPath = null,
+) {
   const normalizedAssetUrl = toText(assetUrl);
-  const cachedFileId = await telegramFileCache?.get(normalizedAssetUrl);
+  const cacheEntry = await telegramFileCache?.getEntry?.(normalizedAssetUrl);
+  const cachedFileId = toText(cacheEntry?.fileId);
 
   if (!cachedFileId) {
     return {
@@ -1109,10 +1367,53 @@ async function validateTelegramCachedFile(token, assetUrl, telegramFileCache) {
     };
   }
 
+  const currentSignatureInfo = await getLocalAssetSignatureInfo(
+    normalizedAssetUrl,
+    resolveLocalAssetPath,
+    '',
+  );
+  const currentSignature = currentSignatureInfo.signature;
+
+  if (
+    currentSignature &&
+    !toText(cacheEntry?.signature) &&
+    Boolean(cacheEntry?.legacy) &&
+    Number(cacheEntry?.cacheFileUpdatedAtMs || 0) > 0 &&
+    currentSignatureInfo.mtimeMs > Number(cacheEntry?.cacheFileUpdatedAtMs || 0) + 1000
+  ) {
+    await telegramFileCache?.delete?.(normalizedAssetUrl);
+
+    return {
+      ok: true,
+      cached: false,
+      reason: 'cache-content-changed',
+    };
+  }
+
+  if (
+    currentSignature &&
+    toText(cacheEntry?.signature) &&
+    toText(cacheEntry?.signature) !== currentSignature
+  ) {
+    await telegramFileCache?.delete?.(normalizedAssetUrl);
+
+    return {
+      ok: true,
+      cached: false,
+      reason: 'cache-content-changed',
+    };
+  }
+
   try {
     await telegramRequest(token, 'getFile', {
       file_id: cachedFileId,
     });
+
+    if (currentSignature && !toText(cacheEntry?.signature)) {
+      await telegramFileCache?.set?.(normalizedAssetUrl, cachedFileId, {
+        signature: currentSignature,
+      });
+    }
 
     return {
       ok: true,
@@ -1161,7 +1462,15 @@ async function resolveTelegramMediaSourceForCacheWarm(assetUrl, options, skipCac
     return null;
   }
 
-  const cachedFileId = skipCache ? '' : await options.telegramFileCache?.get(normalizedAssetUrl);
+  const localAssetPath = options.resolveLocalAssetPath?.(normalizedAssetUrl);
+  const cachedFileId = skipCache
+    ? ''
+    : await getValidCachedFileId(
+        normalizedAssetUrl,
+        options.resolveLocalAssetPath,
+        options.telegramFileCache,
+        localAssetPath,
+      );
 
   if (cachedFileId) {
     return {
@@ -1170,8 +1479,6 @@ async function resolveTelegramMediaSourceForCacheWarm(assetUrl, options, skipCac
       assetUrl: normalizedAssetUrl,
     };
   }
-
-  const localAssetPath = options.resolveLocalAssetPath?.(normalizedAssetUrl);
 
   if (localAssetPath && (await pathExists(localAssetPath))) {
     return {
@@ -1487,7 +1794,13 @@ async function sendPhoto(
       }
     });
 
-    await telegramFileCache?.set(photoSource.assetUrl, extractTelegramFileId(result));
+    await storeTelegramCachedFileId(
+      telegramFileCache,
+      photoSource?.assetUrl,
+      extractTelegramFileId(result),
+      mediaRetryOptions?.resolveLocalAssetPath,
+      photoSource?.filePath,
+    );
     return result;
   }
 
@@ -1504,7 +1817,12 @@ async function sendPhoto(
       ...extra,
     });
 
-    await telegramFileCache?.set(photoSource?.assetUrl, extractTelegramFileId(result));
+    await storeTelegramCachedFileId(
+      telegramFileCache,
+      photoSource?.assetUrl,
+      extractTelegramFileId(result),
+      mediaRetryOptions?.resolveLocalAssetPath,
+    );
     return result;
   } catch (error) {
     if (
@@ -1574,7 +1892,13 @@ async function sendVideo(
       }
     });
 
-    await telegramFileCache?.set(videoSource.assetUrl, extractTelegramFileId(result));
+    await storeTelegramCachedFileId(
+      telegramFileCache,
+      videoSource?.assetUrl,
+      extractTelegramFileId(result),
+      mediaRetryOptions?.resolveLocalAssetPath,
+      videoSource?.filePath,
+    );
     return result;
   }
 
@@ -1592,7 +1916,12 @@ async function sendVideo(
       ...extra,
     });
 
-    await telegramFileCache?.set(videoSource?.assetUrl, extractTelegramFileId(result));
+    await storeTelegramCachedFileId(
+      telegramFileCache,
+      videoSource?.assetUrl,
+      extractTelegramFileId(result),
+      mediaRetryOptions?.resolveLocalAssetPath,
+    );
     return result;
   } catch (error) {
     if (
@@ -1644,9 +1973,11 @@ async function sendMediaGroup(
 
       await Promise.all(
         result.map((message, index) =>
-          telegramFileCache?.set(
+          storeTelegramCachedFileId(
+            telegramFileCache,
             mediaSources[index]?.media?.assetUrl,
             extractTelegramFileId(message),
+            mediaRetryOptions?.resolveLocalAssetPath,
           ),
         ),
       );
@@ -1697,9 +2028,14 @@ async function sendMediaGroup(
 
     await Promise.all(
       result.map((message, index) =>
-        telegramFileCache?.set(
+        storeTelegramCachedFileId(
+          telegramFileCache,
           mediaSources[index]?.media?.assetUrl,
           extractTelegramFileId(message),
+          mediaRetryOptions?.resolveLocalAssetPath,
+          mediaSources[index]?.media?.kind === 'local'
+            ? mediaSources[index]?.media?.filePath
+            : '',
         ),
       ),
     );
@@ -1761,6 +2097,7 @@ async function warmMediaAssetToTelegramCache(token, assetUrl, mediaType, options
       token,
       assetUrl,
       options.telegramFileCache,
+      options.resolveLocalAssetPath,
     );
 
     if (!validation.ok) {
@@ -1839,6 +2176,7 @@ async function checkMediaAssetTelegramCache(token, assetUrl, _mediaType, options
     token,
     normalizedAssetUrl,
     options.telegramFileCache,
+    options.resolveLocalAssetPath,
   );
 
   if (!validation.ok) {
@@ -2092,6 +2430,39 @@ async function appendPaymentMessageIds(billingStore, payment, messageIds) {
       ),
     })) || payment
   );
+}
+
+function getPaymentReminderPlanLabel(payment, options) {
+  const paymentPlan = getPaymentPlanForPayment(payment, options);
+  const normalizedPlanId = normalizePlanId(payment?.planId || paymentPlan?.id);
+
+  if (normalizedPlanId === '7d') {
+    return '7 dias';
+  }
+
+  if (normalizedPlanId === '30d') {
+    return '1 mes';
+  }
+
+  return (
+    toText(payment?.planDurationLabel) ||
+    toText(paymentPlan?.durationLabel) ||
+    toText(payment?.planName) ||
+    toText(paymentPlan?.name) ||
+    'seu plano'
+  );
+}
+
+function buildPendingPaymentReminderText(payment, options) {
+  const planLabel = getPaymentReminderPlanLabel(payment, options);
+
+  return [
+    '⚠️ Notamos que voce ainda nao concluiu o pagamento.',
+    '',
+    `Para garantir acesso ao <b>AllPrivacyVIP - ${escapeHtml(planLabel)}</b>, finalize seu pagamento o quanto antes. Assim que o pagamento for aprovado, o acesso sera liberado imediatamente!`,
+    '',
+    '✅ Realize o pagamento agora para nao perder essa oportunidade! ✅',
+  ].join('\n');
 }
 
 async function sendPaymentCopyCode(token, chatId, paymentId, options, callbackId = '') {
@@ -3067,6 +3438,71 @@ async function autoVerifyPendingPayments(token, options) {
   }
 }
 
+async function sendPendingPaymentReminders(token, options) {
+  if (!options.paymentConfig.enabled || options.paymentConfig.pixReminderMs <= 0) {
+    return;
+  }
+
+  const pendingPayments = await options.billingStore.listPendingPayments();
+  const now = Date.now();
+
+  for (const payment of pendingPayments) {
+    const reminderSentAt = toText(payment?.syncpayPayload?.paymentReminderSentAt);
+
+    if (reminderSentAt) {
+      continue;
+    }
+
+    const createdTimestamp = Date.parse(toText(payment.createdAt));
+    const expiresTimestamp = Date.parse(toText(payment.pixExpiresAt));
+
+    if (!Number.isFinite(createdTimestamp)) {
+      continue;
+    }
+
+    if (Number.isFinite(expiresTimestamp) && expiresTimestamp <= now) {
+      continue;
+    }
+
+    if (createdTimestamp + Number(options.paymentConfig.pixReminderMs || 0) > now) {
+      continue;
+    }
+
+    try {
+      const reminderMessage = await sendHtmlText(
+        token,
+        payment.chatId,
+        buildPendingPaymentReminderText(payment, options),
+      );
+
+      let nextPayment =
+        (await options.billingStore.updatePayment(payment.id, {
+          syncpayPayload: {
+            ...(payment.syncpayPayload && typeof payment.syncpayPayload === 'object'
+              ? payment.syncpayPayload
+              : {}),
+            paymentReminderSentAt: new Date().toISOString(),
+          },
+        })) || payment;
+
+      if (Number.isInteger(reminderMessage?.message_id)) {
+        nextPayment =
+          (await appendPaymentMessageIds(
+            options.billingStore,
+            nextPayment,
+            [reminderMessage.message_id],
+          )) || nextPayment;
+      }
+    } catch (error) {
+      logBot('Falha ao enviar lembrete automatico do Pix.', {
+        paymentId: payment.id,
+        chatId: payment.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 async function expirePendingPixPayments(token, options) {
   if (!options.paymentConfig.enabled) {
     return;
@@ -3212,7 +3648,8 @@ async function sendModelList(token, chatId, siteContent, siteUrl) {
 async function sendModelDetails(token, chatId, model, options) {
   const caption = buildModelCaption(model);
   const replyMarkup = buildModelKeyboard(model, options);
-  const mediaPreview = getRandomModelMediaSelection(model);
+  const customer = (await options.billingStore.getCustomer(chatId)) || {};
+  const mediaPreview = getRandomModelMediaSelection(model, getPreviewRecentKeys(customer));
   const selectedSummary = mediaPreview.map((item) => item.type).join(', ');
 
   logBot('Enviando previas da modelo.', {
@@ -3224,6 +3661,7 @@ async function sendModelDetails(token, chatId, model, options) {
 
   if (mediaPreview.length > 0) {
     await sendPreviewMediaSelection(token, chatId, mediaPreview, options);
+    await rememberPreviewMediaItems(chatId, mediaPreview, options);
   } else if (model.coverImage) {
     const coverSource = await resolveTelegramMediaSource(
       model.coverImage,
@@ -3260,7 +3698,8 @@ async function sendModelDetails(token, chatId, model, options) {
 }
 
 async function sendSitewidePreviews(token, chatId, siteContent, options) {
-  const mediaPreview = getRandomSitewideMediaSelection(siteContent);
+  const customer = (await options.billingStore.getCustomer(chatId)) || {};
+  const mediaPreview = getRandomSitewideMediaSelection(siteContent, getPreviewRecentKeys(customer));
 
   logBot('Enviando previas globais.', {
     chatId,
@@ -3275,6 +3714,7 @@ async function sendSitewidePreviews(token, chatId, siteContent, options) {
   }
 
   await sendPreviewMediaSelection(token, chatId, mediaPreview, options);
+  await rememberPreviewMediaItems(chatId, mediaPreview, options);
 
   return null;
 }
@@ -3668,6 +4108,7 @@ export function startTelegramBot({
   let expirationInterval = null;
   let paymentVerificationInterval = null;
   let consecutivePollFailures = 0;
+  const updateProcessingQueues = new Map();
   const telegramFileCache = createTelegramFileCache(cacheFilePath);
 
   const options = {
@@ -3699,7 +4140,8 @@ export function startTelegramBot({
       simulationEnabled: Boolean(paymentConfig?.simulationEnabled),
       fakePixEnabled: Boolean(paymentConfig?.fakePixEnabled),
       previewUsageWindowMs: Math.max(1000, Number(paymentConfig?.previewUsageWindowMs || 24 * 60 * 60 * 1000)),
-      pixTtlMs: Math.max(60000, Number(paymentConfig?.pixTtlMs || 5 * 60 * 1000)),
+      pixTtlMs: Math.max(60000, Number(paymentConfig?.pixTtlMs || 8 * 60 * 1000)),
+      pixReminderMs: Math.max(0, Number(paymentConfig?.pixReminderMs || 4 * 60 * 1000)),
       durationMs: Math.max(
         30 * 1000,
         ...(Array.isArray(paymentConfig?.plans) && paymentConfig.plans.length > 0
@@ -3744,6 +4186,58 @@ export function startTelegramBot({
     }
   }
 
+  function getUpdateProcessingKey(update) {
+    const messageChatId = toText(update?.message?.chat?.id);
+
+    if (messageChatId) {
+      return `message:${messageChatId}`;
+    }
+
+    const callbackChatId = toText(update?.callback_query?.message?.chat?.id);
+
+    if (callbackChatId) {
+      return `callback:${callbackChatId}`;
+    }
+
+    const joinRequestChatId = toText(update?.chat_join_request?.chat?.id);
+    const joinRequestUserId = toText(update?.chat_join_request?.from?.id);
+
+    if (joinRequestChatId || joinRequestUserId) {
+      return `join:${joinRequestChatId || 'unknown'}:${joinRequestUserId || 'unknown'}`;
+    }
+
+    return `update:${toText(update?.update_id) || Date.now()}`;
+  }
+
+  function enqueueUpdateProcessing(update) {
+    const queueKey = getUpdateProcessingKey(update);
+    const previousTask = updateProcessingQueues.get(queueKey) || Promise.resolve();
+
+    const nextTask = previousTask
+      .catch(() => undefined)
+      .then(async () => {
+        if (isStopped) {
+          return;
+        }
+
+        await processUpdate(update);
+      })
+      .catch((error) => {
+        console.error('Falha ao processar update do Telegram:', {
+          updateId: update?.update_id,
+          queueKey,
+          erro: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    updateProcessingQueues.set(queueKey, nextTask);
+    nextTask.finally(() => {
+      if (updateProcessingQueues.get(queueKey) === nextTask) {
+        updateProcessingQueues.delete(queueKey);
+      }
+    });
+  }
+
   async function poll() {
     if (isStopped) {
       return;
@@ -3770,7 +4264,7 @@ export function startTelegramBot({
 
       for (const update of updates) {
         offset = update.update_id + 1;
-        await processUpdate(update);
+        enqueueUpdateProcessing(update);
       }
     } catch (error) {
       consecutivePollFailures += 1;
@@ -3807,6 +4301,7 @@ export function startTelegramBot({
   }, expirationCheckIntervalMs);
   paymentVerificationInterval = setInterval(() => {
     autoVerifyPendingPayments(normalizedToken, options)
+      .then(() => sendPendingPaymentReminders(normalizedToken, options))
       .then(() => expirePendingPixPayments(normalizedToken, options))
       .catch((error) => {
         console.error('Falha ao verificar pagamentos pendentes:', error);

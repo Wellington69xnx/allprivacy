@@ -41,6 +41,9 @@ function normalizeCustomer(customer, chatIdKey) {
     previewUsageDate: toText(customer.previewUsageDate),
     previewUsageCount: Math.max(0, Number(customer.previewUsageCount || 0)),
     previewUsageWindowStartedAt: toText(customer.previewUsageWindowStartedAt),
+    previewRecentMediaKeys: Array.isArray(customer.previewRecentMediaKeys)
+      ? customer.previewRecentMediaKeys.map((item) => toText(item)).filter(Boolean).slice(0, 24)
+      : [],
     createdAt: toText(customer.createdAt) || new Date().toISOString(),
     updatedAt: toText(customer.updatedAt) || new Date().toISOString(),
   };

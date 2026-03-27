@@ -16,6 +16,7 @@ interface PreviewCarouselProps {
   ctaHref: string;
   ctaLabel: string;
   variant?: 'wide' | 'portrait';
+  sectionClassName?: string;
 }
 
 export function PreviewCarousel({
@@ -28,6 +29,7 @@ export function PreviewCarousel({
   ctaHref,
   ctaLabel,
   variant = 'wide',
+  sectionClassName,
 }: PreviewCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -117,8 +119,33 @@ export function PreviewCarousel({
       : 'relative aspect-[4/3] h-full overflow-hidden rounded-[inherit] bg-black';
   const ctaCardClassName =
     variant === 'portrait'
-      ? 'w-[54vw] max-w-[250px] shrink-0 snap-start overflow-hidden rounded-[26px] border border-white/10 bg-gradient-to-br from-white/[0.09] via-white/[0.05] to-transparent p-5 md:w-[240px] lg:w-[260px]'
-      : 'w-[88vw] max-w-[560px] shrink-0 snap-start overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.09] via-white/[0.05] to-transparent p-6 md:w-[620px] lg:w-[720px]';
+      ? 'relative self-start aspect-[9/16] w-[54vw] max-w-[250px] shrink-0 snap-start overflow-hidden rounded-[26px] border border-white/10 bg-gradient-to-br from-white/[0.09] via-white/[0.05] to-transparent md:w-[240px] lg:w-[260px]'
+      : 'relative self-start aspect-[4/3] w-[88vw] max-w-[600px] shrink-0 snap-start overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.09] via-white/[0.05] to-transparent md:w-[670px] lg:w-[760px]';
+
+  const ctaContentClassName =
+    variant === 'portrait'
+      ? 'absolute inset-0 flex h-full w-full min-h-0 flex-col justify-between gap-3 p-4 sm:p-5'
+      : 'absolute inset-0 flex h-full w-full min-h-0 flex-col justify-between gap-2 p-3 sm:gap-3 sm:p-4 md:p-5 lg:p-6';
+
+  const ctaTextBlockClassName =
+    variant === 'portrait'
+      ? 'flex flex-1 flex-col justify-center text-center'
+      : 'flex flex-1 flex-col justify-center text-center md:text-left';
+
+  const ctaTitleClassName =
+    variant === 'portrait'
+      ? 'font-display text-xl font-semibold tracking-tight text-white sm:text-2xl'
+      : 'font-display text-xl font-semibold tracking-tight text-white sm:text-2xl md:text-[1.7rem] lg:text-[2rem]';
+
+  const ctaDescriptionClassName =
+    variant === 'portrait'
+      ? 'mt-2 text-[13px] leading-5 text-zinc-300 sm:text-sm sm:leading-6'
+      : 'mt-2 text-[13px] leading-5 text-zinc-300 sm:text-sm sm:leading-6 md:text-[15px] md:leading-6 lg:text-base';
+
+  const ctaButtonClassName =
+    variant === 'portrait'
+      ? 'w-full min-h-12 px-4 py-3 text-sm sm:text-base'
+      : 'w-full min-h-12 px-4 py-3 text-sm md:min-h-12 md:px-5 md:py-3 md:text-base lg:min-h-14 lg:text-base';
 
   const scrollByCard = (direction: 'left' | 'right') => {
     const container = containerRef.current;
@@ -176,7 +203,7 @@ export function PreviewCarousel({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, ease: 'easeOut' }}
-      className="pt-10"
+      className={sectionClassName ?? 'pt-12 sm:pt-10'}
     >
       <SectionHeader eyebrow={eyebrow} title={title} description={description} />
 
@@ -209,32 +236,38 @@ export function PreviewCarousel({
                         className="h-full w-full"
                         preloadStrategy={item.type === 'video' ? 'auto' : 'metadata'}
                         fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
+                        showVolumeToggle
                       />
                   </div>
                 </article>
               ))}
 
               <div data-scroll-card className={ctaCardClassName}>
-                <div className="flex h-full min-h-[220px] flex-col justify-between gap-5 md:min-h-[260px]">
-                  <div>
-                    <span className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">
-                      CTA
-                    </span>
-                    <h3 className="mt-4 font-display text-2xl font-semibold tracking-tight text-white">
+                <div className={ctaContentClassName}>
+                  <div className={ctaTextBlockClassName}>
+                    <h3 className={ctaTitleClassName}>
                       Entrar no Grupo
                     </h3>
-                    <p className="mt-3 max-w-[28ch] text-sm leading-6 text-zinc-300">
-                      Depois das previas, o CTA continua no proprio fluxo do carrossel para
-                      o usuario seguir deslizando como quiser.
+                    <p className={ctaDescriptionClassName}>
+                      Entre no grupo VIP e tenha acesso a conteudos exclusivos de diversas
+                      modelos do Privacy, OnlyFans, XvideosRED, Close Friends e Telegram VIP.
+                      <br />
+                      <br />
+                      Tudo organizado em categorias para facilitar sua experiencia.
                     </p>
                   </div>
 
-                  <TelegramCTA
-                    href={ctaHref}
-                    label={ctaLabel}
-                    className="w-full"
-                    scrollTargetId="cta-final"
-                  />
+                  <div className="grid gap-1.5 sm:gap-2">
+                    <TelegramCTA
+                      href={ctaHref}
+                      label={ctaLabel}
+                      className={ctaButtonClassName}
+                      scrollTargetId="cta-final"
+                    />
+                    <span className="text-center text-[10px] font-medium uppercase tracking-[0.16em] text-white/45 sm:text-[11px] sm:tracking-[0.18em]">
+                      Aprovacao Imediata
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

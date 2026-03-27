@@ -144,7 +144,7 @@ export function MediaPreviewRail({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, ease: 'easeOut' }}
-      className="pt-10"
+      className="pt-6"
     >
       <SectionHeader eyebrow={eyebrow} title={title} description={description} />
 
@@ -172,6 +172,7 @@ export function MediaPreviewRail({
                       className="h-full w-full"
                       preloadStrategy={item.type === 'video' ? 'auto' : 'metadata'}
                       fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
+                      showVolumeToggle
                     />
                   </div>
                 </article>

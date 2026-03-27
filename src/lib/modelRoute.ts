@@ -31,6 +31,14 @@ export function getAdminPath() {
   return '/admin';
 }
 
+export function getAboutPath() {
+  return '/sobre';
+}
+
+export function getSupportPath() {
+  return '/suporte';
+}
+
 export function getModelPath(model: Pick<ModelProfile, 'id' | 'name' | 'handle'>) {
   return `/${getModelRouteSlug(model)}`;
 }

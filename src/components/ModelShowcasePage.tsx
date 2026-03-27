@@ -7,6 +7,7 @@ import type { ModelProfile } from '../types';
 import { BrandMark } from './BrandMark';
 import { MediaPreviewRail } from './MediaPreviewRail';
 import { PlanOptions } from './PlanOptions';
+import { SiteFooter } from './SiteFooter';
 import { TelegramCTA } from './TelegramCTA';
 
 interface ModelShowcasePageProps {
@@ -103,20 +104,42 @@ export function ModelShowcasePage({
       <div className="relative">
         <div className="mx-auto max-w-[1440px] px-4 pb-14 sm:px-6 lg:px-8">
           <div
-            className="flex justify-center px-4 py-5"
+            className="relative flex items-center justify-center px-4 py-5"
             style={{ paddingTop: 'max(env(safe-area-inset-top), 1.25rem)' }}
           >
-            <BrandMark href={getHomePath()} />
+            <a
+              href={getHomePath()}
+              className="absolute -left-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/50 transition hover:text-white/75 sm:hidden"
+            >
+              <span aria-hidden="true">‹</span>
+              <span>Pagina inicial</span>
+            </a>
+            <a
+              href={getHomePath()}
+              className="absolute left-4 top-1/2 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75 sm:inline-flex md:text-[13px]"
+            >
+              <span aria-hidden="true">‹</span>
+              <span>Pagina inicial</span>
+            </a>
+            <div className="sm:hidden">
+              <BrandMark
+                href={getHomePath()}
+                className="text-[1.08rem] tracking-[0.1em] max-[380px]:text-[0.98rem]"
+              />
+            </div>
+            <div className="hidden sm:block">
+              <BrandMark href={getHomePath()} />
+            </div>
           </div>
 
-          <header className="pt-6 sm:pt-8">
+          <header className="pt-28 sm:pt-8">
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="max-w-3xl py-10 sm:py-14"
+              className="max-w-3xl py-12 sm:py-14"
             >
-              <div className="mt-5 flex items-center gap-4 sm:gap-5">
+              <div className="mt-0 flex items-center gap-4 sm:mt-5 sm:gap-5">
                 <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border border-white/10 bg-black/40 sm:h-20 sm:w-20">
                   <img
                     src={model.profileImage}
@@ -183,6 +206,8 @@ export function ModelShowcasePage({
             </div>
           </div>
         </div>
+
+        <SiteFooter />
       </div>
     </div>
   );

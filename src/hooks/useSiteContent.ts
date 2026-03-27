@@ -7,6 +7,7 @@ import type {
   MediaType,
   ModelProfile,
   SiteContent,
+  TelegramCacheSingleItemResponse,
   TelegramCacheWarmStatus,
   UploadAssetOptions,
   UploadAssetProgress,
@@ -16,6 +17,7 @@ import type {
 const SITE_CONTENT_ENDPOINT = '/api/site-content';
 const UPLOAD_ENDPOINT = '/api/upload';
 const TELEGRAM_CACHE_WARM_ENDPOINT = '/api/admin/telegram-cache/warm-all';
+const TELEGRAM_CACHE_SINGLE_ENDPOINT = '/api/admin/telegram-cache/warm-one';
 const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v1';
 
 interface ModelInput {
@@ -129,6 +131,47 @@ function buildMediaItem(input: MediaInput) {
     thumbnail: nextThumbnail,
     src: input.type === 'video' ? input.src?.trim() || '' : undefined,
   };
+}
+
+function getMediaAssetKey(item: {
+  type: MediaType;
+  thumbnail?: string;
+  src?: string;
+}) {
+  const assetUrl =
+    item.type === 'video'
+      ? item.src?.trim() || item.thumbnail?.trim() || ''
+      : item.thumbnail?.trim() || item.src?.trim() || '';
+
+  return assetUrl ? `${item.type}:${assetUrl}` : '';
+}
+
+function appendUniqueMediaItems<T extends { type: MediaType; thumbnail?: string; src?: string }>(
+  currentItems: T[],
+  nextItems: T[],
+) {
+  const seenKeys = new Set(
+    currentItems
+      .map((item) => getMediaAssetKey(item))
+      .filter(Boolean),
+  );
+  const mergedItems = [...currentItems];
+
+  for (const item of nextItems) {
+    const assetKey = getMediaAssetKey(item);
+
+    if (assetKey && seenKeys.has(assetKey)) {
+      continue;
+    }
+
+    if (assetKey) {
+      seenKeys.add(assetKey);
+    }
+
+    mergedItems.push(item);
+  }
+
+  return mergedItems;
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -383,6 +426,7 @@ export function useSiteContent() {
 
   const addMediaToModel = useCallback(
     async (input: MediaInput) => {
+      const nextItem = buildMediaItem(input);
       await updateSiteContent((current) => ({
         ...current,
         models: current.models.map((model) => {
@@ -392,7 +436,7 @@ export function useSiteContent() {
 
           return {
             ...model,
-            gallery: [...model.gallery, buildMediaItem(input)],
+            gallery: appendUniqueMediaItems(model.gallery, [nextItem]),
           };
         }),
       }));
@@ -406,6 +450,8 @@ export function useSiteContent() {
         return;
       }
 
+      const nextItems = items.map((item) => buildMediaItem({ ...item, modelId }));
+
       await updateSiteContent((current) => ({
         ...current,
         models: current.models.map((model) => {
@@ -415,10 +461,7 @@ export function useSiteContent() {
 
           return {
             ...model,
-            gallery: [
-              ...model.gallery,
-              ...items.map((item) => buildMediaItem({ ...item, modelId })),
-            ],
+            gallery: appendUniqueMediaItems(model.gallery, nextItems),
           };
         }),
       }));
@@ -558,6 +601,25 @@ export function useSiteContent() {
     [runTelegramMediaCacheJob],
   );
 
+  const warmSingleTelegramMediaCache = useCallback(
+    async (assetUrl: string, mediaType: MediaType) => {
+      const response = await fetch(TELEGRAM_CACHE_SINGLE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          assetUrl,
+          mediaType,
+        }),
+      });
+
+      return parseJsonResponse<TelegramCacheSingleItemResponse>(response);
+    },
+    [],
+  );
+
   return {
     siteContent,
     isLoading,
@@ -578,5 +640,6 @@ export function useSiteContent() {
     clearSiteContent,
     warmTelegramMediaCache,
     checkTelegramMediaCache,
+    warmSingleTelegramMediaCache,
   };
 }
