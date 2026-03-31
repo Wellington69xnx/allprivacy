@@ -2,14 +2,15 @@ import { motion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { AdminLogin } from './components/AdminLogin';
 import { AdminPanel } from './components/AdminPanel';
+import { FinalGroupCtaCard } from './components/FinalGroupCtaCard';
 import { HeroSection } from './components/HeroSection';
 import { ModelModal } from './components/ModelModal';
 import { ModelShowcasePage } from './components/ModelShowcasePage';
 import { ModelsStories } from './components/ModelsStories';
 import { PreviewCarousel } from './components/PreviewCarousel';
 import { SiteFooter } from './components/SiteFooter';
+import { StaticInfoModal } from './components/StaticInfoModal';
 import { StaticInfoPage } from './components/StaticInfoPage';
-import { TelegramCTA } from './components/TelegramCTA';
 import { TelegramProof } from './components/TelegramProof';
 import { getRandomPreviewCardsByType, heroBackdrop } from './data/models';
 import { useAdminAuth } from './hooks/useAdminAuth';
@@ -21,7 +22,7 @@ import {
   getHomePath,
   getSupportPath,
 } from './lib/modelRoute';
-import { subscriptionPlans } from './lib/subscriptionPlans';
+import { STATIC_INFO_CONTENT, type StaticInfoKey } from './lib/staticInfo';
 import {
   getHomeTelegramPayload,
   getModelTelegramPayload,
@@ -32,24 +33,6 @@ import type { PreviewCard } from './types';
 const TELEGRAM_GROUP_URL =
   import.meta.env.VITE_TELEGRAM_GROUP_URL || 'https://t.me/seu_grupo_vip';
 const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
-
-const perks = [
-  'Privacy',
-  'OnlyFans',
-  'XvideosRED',
-  'CloseFriends',
-  'TelegramVIP',
-  'Anal',
-  'Amador',
-  'Em Publico',
-  'Novinha +18',
-  'Vazados',
-  'Corno/HotWife',
-  'Camera Escondida',
-  'Gozada na Boca',
-  'GangBang',
-  'Agressivo',
-];
 
 type CurrentView =
   | { type: 'site' }
@@ -135,6 +118,7 @@ function getCurrentView(): CurrentView {
 export default function App() {
   const [currentView, setCurrentView] = useState(getCurrentView);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [selectedStaticInfo, setSelectedStaticInfo] = useState<StaticInfoKey | null>(null);
   const [videoPreviewCards, setVideoPreviewCards] = useState<PreviewCard[]>([]);
   const [imagePreviewCards, setImagePreviewCards] = useState<PreviewCard[]>([]);
   const [heroBackgroundPool, setHeroBackgroundPool] = useState<string[]>([]);
@@ -237,6 +221,30 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const onOpenStaticInfo = (event: Event) => {
+      const customEvent = event as CustomEvent<{ type?: StaticInfoKey }>;
+      const nextType = customEvent.detail?.type;
+
+      if (nextType === 'about' || nextType === 'support') {
+        setSelectedStaticInfo(nextType);
+      }
+    };
+
+    window.addEventListener('allprivacy:open-static-info', onOpenStaticInfo as EventListener);
+
+    return () => {
+      window.removeEventListener(
+        'allprivacy:open-static-info',
+        onOpenStaticInfo as EventListener,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     setVideoPreviewCards(getRandomPreviewCardsByType(siteContent.models, 'video', 7));
     setImagePreviewCards(getRandomPreviewCardsByType(siteContent.models, 'image', 10));
   }, [siteContent.models]);
@@ -328,12 +336,9 @@ export default function App() {
       ? getTelegramEntryUrl(TELEGRAM_BOT_USERNAME, payload)
       : TELEGRAM_GROUP_URL;
   const homeEntryHref = buildEntryHref(getHomeTelegramPayload());
-  const selectedModelPlanOptions = selectedModel
-    ? subscriptionPlans.map((plan) => ({
-        ...plan,
-        href: buildEntryHref(getModelTelegramPayload(selectedModel, plan.id)),
-      }))
-    : [];
+  const selectedModelEntryHref = selectedModel
+    ? buildEntryHref(getModelTelegramPayload(selectedModel))
+    : TELEGRAM_GROUP_URL;
 
   if (currentView.type === 'admin') {
     if (adminAuth.isChecking) {
@@ -367,66 +372,44 @@ export default function App() {
     const showcaseEntryHref = showcaseModel
       ? buildEntryHref(getModelTelegramPayload(showcaseModel))
       : TELEGRAM_GROUP_URL;
-    const showcasePlanOptions = showcaseModel
-      ? subscriptionPlans.map((plan) => ({
-          ...plan,
-          href: buildEntryHref(getModelTelegramPayload(showcaseModel, plan.id)),
-        }))
-      : [];
 
     return (
-      <ModelShowcasePage
-        model={showcaseModel}
-        ctaHref={showcaseEntryHref}
-        planOptions={showcasePlanOptions}
-        isLoading={isSiteLoading}
-      />
+      <>
+        <ModelShowcasePage
+          model={showcaseModel}
+          ctaHref={showcaseEntryHref}
+          groupProofItems={siteContent.groupProofItems}
+          isLoading={isSiteLoading}
+        />
+        <StaticInfoModal
+          content={selectedStaticInfo ? STATIC_INFO_CONTENT[selectedStaticInfo] : null}
+          onClose={() => setSelectedStaticInfo(null)}
+        />
+      </>
     );
   }
 
   if (currentView.type === 'about') {
     return (
-      <StaticInfoPage
-        title="Sobre"
-        description="AllPrivacy.net reune em um so lugar o acesso ao bot, as previas do site e a entrada organizada no grupo VIP."
-        sections={[
-          {
-            title: 'Navegacao discreta',
-            body: 'A home e as paginas das modelos mostram previas e organizam o caminho ate o bot sem deixar o fluxo confuso ou poluido.',
-          },
-          {
-            title: 'Bot integrado',
-            body: 'O bot cuida dos planos, do Pix, da confirmacao do pagamento e da liberacao do acesso no grupo privado.',
-          },
-          {
-            title: 'Tudo em um so lugar',
-            body: 'Modelos, categorias, previas e acesso ficam conectados em uma experiencia unica, pensada primeiro para mobile.',
-          },
-        ]}
-      />
+      <>
+        <StaticInfoPage {...STATIC_INFO_CONTENT.about} />
+        <StaticInfoModal
+          content={selectedStaticInfo ? STATIC_INFO_CONTENT[selectedStaticInfo] : null}
+          onClose={() => setSelectedStaticInfo(null)}
+        />
+      </>
     );
   }
 
   if (currentView.type === 'support') {
     return (
-      <StaticInfoPage
-        title="Suporte"
-        description="Se voce tiver qualquer problema com pagamento, acesso ou liberacao no grupo, use o suporte do bot para continuar o atendimento."
-        sections={[
-          {
-            title: 'Pagamento',
-            body: 'Se o Pix ainda estiver pendente, finalize o pagamento dentro do prazo e use a verificacao no proprio bot para atualizar o status.',
-          },
-          {
-            title: 'Meu acesso',
-            body: 'Depois da aprovacao, consulte sua assinatura no menu do bot para confirmar validade, liberacao e status atual.',
-          },
-          {
-            title: 'Acesso ao grupo',
-            body: 'Se a entrada ainda nao tiver sido liberada, volte ao bot, use a verificacao do pagamento e tente novamente pela opcao Meu acesso.',
-          },
-        ]}
-      />
+      <>
+        <StaticInfoPage {...STATIC_INFO_CONTENT.support} />
+        <StaticInfoModal
+          content={selectedStaticInfo ? STATIC_INFO_CONTENT[selectedStaticInfo] : null}
+          onClose={() => setSelectedStaticInfo(null)}
+        />
+      </>
     );
   }
 
@@ -441,10 +424,12 @@ export default function App() {
           <PreviewCarousel
             id="previas"
             eyebrow="AllPrivacy.site"
-            title="Videos (Previas)"
+            title={'V\u00eddeos (Pr\u00e9vias)'}
             description=""
             items={videoPreviewCards}
-            emptyMessage="Nenhum video cadastrado ainda. Adicione videos pelo painel admin para preencher esta faixa."
+            emptyMessage={
+              'Nenhum v\u00eddeo cadastrado ainda. Adicione v\u00eddeos pelo painel admin para preencher esta faixa.'
+            }
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
           />
@@ -458,15 +443,15 @@ export default function App() {
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
             variant="portrait"
-            sectionClassName="pt-9 sm:pt-8"
+            sectionClassName="pt-11 sm:pt-10"
           />
 
+          <TelegramProof items={siteContent.groupProofItems} />
           <ModelsStories
             models={siteContent.models}
             onSelect={(model) => setSelectedModelId(model.id)}
             ctaTargetId="cta-final"
           />
-          <TelegramProof items={siteContent.groupProofItems} />
 
           <motion.section
             id="cta-final"
@@ -474,34 +459,9 @@ export default function App() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}
             transition={{ duration: 0.6, ease: 'easeOut' }}
-            className="pt-14 sm:pt-14"
+            className="pt-16 sm:pt-16"
           >
-            <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent p-6 shadow-neon">
-              <h2 className="mt-4 max-w-2xl font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Entrar no grupo VIP
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-                O bot informa tudo sobre o acesso e libera sua entrada em poucos passos.
-              </p>
-
-              <div className="mt-5 flex flex-wrap gap-1.5 sm:gap-2">
-                {perks.map((perk) => (
-                  <span
-                    key={perk}
-                    className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/75 sm:px-3 sm:py-2 sm:text-xs"
-                  >
-                    {perk}
-                  </span>
-                ))}
-              </div>
-
-              <div className="mt-6 grid w-full gap-2 sm:inline-grid">
-                <TelegramCTA href={homeEntryHref} label="Entrar no Grupo" className="w-full sm:w-auto" />
-                <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-                  Acesso imediato
-                </span>
-              </div>
-            </div>
+            <FinalGroupCtaCard ctaHref={homeEntryHref} />
           </motion.section>
         </div>
       </main>
@@ -511,7 +471,11 @@ export default function App() {
       <ModelModal
         model={selectedModel}
         onClose={() => setSelectedModelId(null)}
-        planOptions={selectedModelPlanOptions}
+        ctaHref={selectedModelEntryHref}
+      />
+      <StaticInfoModal
+        content={selectedStaticInfo ? STATIC_INFO_CONTENT[selectedStaticInfo] : null}
+        onClose={() => setSelectedStaticInfo(null)}
       />
     </div>
   );

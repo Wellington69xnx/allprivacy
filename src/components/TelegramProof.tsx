@@ -68,12 +68,14 @@ export function TelegramProof({ items }: TelegramProofProps) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.6, ease: 'easeOut' }}
-      className="pt-12 sm:pt-14"
+      className="pt-14 sm:pt-16"
     >
       <SectionHeader
         eyebrow="AllPrivacy.site"
-        title="Por dentro do grupo"
-        description="Todo conteudo organizado por topicos para melhorar sua experiencia"
+        title={'Por dentro do grupo'}
+        description={
+          'Todo conte\u00fado organizado por t\u00f3picos para melhorar sua experi\u00eancia'
+        }
       />
 
       {items.length === 0 ? (

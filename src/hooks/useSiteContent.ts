@@ -177,7 +177,7 @@ function appendUniqueMediaItems<T extends { type: MediaType; thumbnail?: string;
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const rawMessage = await response.text();
-    let nextMessage = rawMessage || 'Falha ao processar a requisicao.';
+    let nextMessage = rawMessage || 'Falha ao processar a requisi\u00e7\u00e3o.';
 
     try {
       const parsed = JSON.parse(rawMessage) as { message?: string };
@@ -233,7 +233,7 @@ export function useSiteContent() {
         const fallback = cloneDefaultContent();
         siteContentRef.current = fallback;
         setSiteContent(fallback);
-        setError('Nao foi possivel carregar o conteudo salvo em disco.');
+        setError('N\u00e3o foi poss\u00edvel carregar o conte\u00fado salvo em disco.');
       }
     } finally {
       setIsLoading(false);
@@ -265,7 +265,7 @@ export function useSiteContent() {
 
       return data.siteContent;
     } catch {
-      setError('Nao foi possivel salvar o conteudo no projeto.');
+      setError('N\u00e3o foi poss\u00edvel salvar o conte\u00fado no projeto.');
       throw new Error('save_failed');
     } finally {
       setIsSaving(false);
@@ -330,13 +330,13 @@ export function useSiteContent() {
           };
 
           request.onerror = () => {
-            setError('Nao foi possivel enviar o arquivo para o projeto.');
+            setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
             reject(new Error('upload_failed'));
           };
 
           request.onload = () => {
             if (request.status < 200 || request.status >= 300) {
-              setError('Nao foi possivel enviar o arquivo para o projeto.');
+              setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
               reject(new Error(request.responseText || 'upload_failed'));
               return;
             }
@@ -346,14 +346,14 @@ export function useSiteContent() {
               setError(null);
               resolve(parsed);
             } catch {
-              setError('Nao foi possivel enviar o arquivo para o projeto.');
+              setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
               reject(new Error('upload_failed'));
             }
           };
 
           request.send(formData);
         } catch {
-          setError('Nao foi possivel enviar o arquivo para o projeto.');
+          setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
           reject(new Error('upload_failed'));
         }
       }),
@@ -583,7 +583,9 @@ export function useSiteContent() {
     }
 
     if (currentStatus.state === 'failed') {
-      throw new Error(currentStatus.message || 'Falha ao enviar as midias para cache do Telegram.');
+      throw new Error(
+        currentStatus.message || 'Falha ao enviar as m\u00eddias para cache do Telegram.',
+      );
     }
 
     return currentStatus;

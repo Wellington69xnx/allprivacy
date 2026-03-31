@@ -12,6 +12,7 @@ interface AutoplayMediaProps {
   preloadStrategy?: 'none' | 'metadata' | 'auto';
   fitMode?: 'cover' | 'contain';
   showVolumeToggle?: boolean;
+  showLoadingSkeleton?: boolean;
 }
 
 export function AutoplayMedia({
@@ -24,6 +25,7 @@ export function AutoplayMedia({
   preloadStrategy,
   fitMode = 'cover',
   showVolumeToggle = false,
+  showLoadingSkeleton = false,
 }: AutoplayMediaProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -134,6 +136,15 @@ export function AutoplayMedia({
       role={isInteractive ? 'button' : undefined}
       aria-label={isInteractive ? `Reproduzir previa de ${alt}` : undefined}
     >
+      {showLoadingSkeleton && !isReady ? (
+        <div className="pointer-events-none absolute inset-0 z-[1] skeleton-shimmer">
+          <div className="absolute inset-x-4 bottom-4 space-y-2">
+            <div className="h-3 w-2/3 rounded-full bg-white/10" />
+            <div className="h-3 w-1/2 rounded-full bg-white/10" />
+          </div>
+        </div>
+      ) : null}
+
       {type === 'video' && src ? (
         <>
           {isContained ? (

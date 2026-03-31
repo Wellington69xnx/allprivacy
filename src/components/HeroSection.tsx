@@ -128,10 +128,10 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
           className="space-y-4"
         >
           <h1 className="font-display text-[2rem] font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-            AllPrivacyVIP no Telegram.
+            {'AllPrivacyVIP no Telegram.'}
           </h1>
-          <p className="mx-auto max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
-            Encontre tudo que procura em um so lugar. Entrada discreta e acesso imediato.
+                    <p className="mx-auto max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
+            {'Encontre tudo o que voc\u00ea procura em um s\u00f3 lugar.'}
           </p>
         </motion.div>
       </div>

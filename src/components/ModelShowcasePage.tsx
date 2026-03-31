@@ -1,28 +1,31 @@
 import { motion } from 'framer-motion';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getPreviewCardsForModelByType } from '../data/models';
-import type { SubscriptionPlanLink } from '../lib/subscriptionPlans';
 import { getHomePath } from '../lib/modelRoute';
-import type { ModelProfile } from '../types';
+import type { GroupProofItem, ModelProfile } from '../types';
 import { BrandMark } from './BrandMark';
+import { FinalGroupCtaCard } from './FinalGroupCtaCard';
 import { MediaPreviewRail } from './MediaPreviewRail';
-import { PlanOptions } from './PlanOptions';
 import { SiteFooter } from './SiteFooter';
+import { TelegramProof } from './TelegramProof';
 import { TelegramCTA } from './TelegramCTA';
 
 interface ModelShowcasePageProps {
   model: ModelProfile | null;
   ctaHref: string;
-  planOptions: SubscriptionPlanLink[];
+  groupProofItems: GroupProofItem[];
   isLoading?: boolean;
 }
 
 export function ModelShowcasePage({
   model,
   ctaHref,
-  planOptions,
+  groupProofItems,
   isLoading = false,
 }: ModelShowcasePageProps) {
+  const finalCtaButtonRef = useRef<HTMLDivElement>(null);
+  const [isFinalCtaVisible, setIsFinalCtaVisible] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const videoPreviewCards = useMemo(
     () => (model ? getPreviewCardsForModelByType(model, 'video', 7) : []),
     [model],
@@ -52,6 +55,63 @@ export function ModelShowcasePage({
     };
   }, [model]);
 
+  useEffect(() => {
+    if (!model || typeof window === 'undefined' || !finalCtaButtonRef.current) {
+      setIsFinalCtaVisible(false);
+      setIsMobileViewport(false);
+      return;
+    }
+
+    const finalTarget = finalCtaButtonRef.current;
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const legacyMediaQuery = mediaQuery as MediaQueryList & {
+      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    };
+    let finalObserver: IntersectionObserver | null = null;
+
+    const setupObserver = () => {
+      finalObserver?.disconnect();
+      setIsMobileViewport(mediaQuery.matches);
+
+      if (!mediaQuery.matches) {
+        setIsFinalCtaVisible(false);
+        return;
+      }
+
+      finalObserver = new IntersectionObserver(
+        ([entry]) => {
+          setIsFinalCtaVisible(entry.isIntersecting);
+        },
+        {
+          threshold: 0.2,
+        },
+      );
+
+      finalObserver.observe(finalTarget);
+    };
+
+    setupObserver();
+
+    if ('addEventListener' in mediaQuery) {
+      mediaQuery.addEventListener('change', setupObserver);
+    } else {
+      legacyMediaQuery.addListener?.(setupObserver);
+    }
+
+    return () => {
+      finalObserver?.disconnect();
+
+      if ('removeEventListener' in mediaQuery) {
+        mediaQuery.removeEventListener('change', setupObserver);
+      } else {
+        legacyMediaQuery.removeListener?.(setupObserver);
+      }
+    };
+  }, [model]);
+
+  const showFloatingCta = isMobileViewport && !isFinalCtaVisible;
+
   if (isLoading && !model) {
     return (
       <div className="min-h-screen bg-ink text-white">
@@ -72,14 +132,15 @@ export function ModelShowcasePage({
             href={getHomePath()}
             className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/50"
           >
-            Voltar para a home
+            {'Voltar para a home'}
           </a>
           <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            Modelo nao encontrada
+            {'Modelo n\u00e3o encontrada'}
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
-            Essa rota nao encontrou uma modelo valida. Volte para a home ou confira a URL
-            divulgada.
+            {
+              'Essa rota n\u00e3o encontrou uma modelo v\u00e1lida. Volte para a home ou confira a URL divulgada.'
+            }
           </p>
         </div>
       </div>
@@ -111,15 +172,15 @@ export function ModelShowcasePage({
               href={getHomePath()}
               className="absolute -left-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/50 transition hover:text-white/75 sm:hidden"
             >
-              <span aria-hidden="true">‹</span>
-              <span>Pagina inicial</span>
+              <span aria-hidden="true">{'\u2039'}</span>
+              <span>{'P\u00e1gina inicial'}</span>
             </a>
             <a
               href={getHomePath()}
               className="absolute left-4 top-1/2 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75 sm:inline-flex md:text-[13px]"
             >
-              <span aria-hidden="true">‹</span>
-              <span>Pagina inicial</span>
+              <span aria-hidden="true">{'\u2039'}</span>
+              <span>{'P\u00e1gina inicial'}</span>
             </a>
             <div className="sm:hidden">
               <BrandMark
@@ -137,9 +198,10 @@ export function ModelShowcasePage({
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="max-w-3xl py-12 sm:py-14"
+              className="w-full py-12 sm:py-14"
             >
-              <div className="mt-0 flex items-center gap-4 sm:mt-5 sm:gap-5">
+              <div className="mt-0 flex items-start justify-between gap-4 sm:mt-5 sm:gap-5">
+                <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-5">
                 <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border border-white/10 bg-black/40 sm:h-20 sm:w-20">
                   <img
                     src={model.profileImage}
@@ -158,6 +220,18 @@ export function ModelShowcasePage({
                     </p>
                   ) : null}
                 </div>
+                <div className="ml-auto hidden shrink-0 sm:inline-grid sm:gap-2">
+                  <TelegramCTA
+                    href={ctaHref}
+                    label="Entrar no Grupo VIP"
+                    className="min-h-16 w-auto min-w-[400px] px-8 py-4 text-[1.22rem]"
+                    scrollTargetId="cta-final"
+                  />
+                  <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+                    {'Acesso imediato'}
+                  </span>
+                </div>
+              </div>
               </div>
               {model.tagline ? (
                 <p className="mt-5 max-w-[44ch] text-sm leading-6 text-zinc-200 sm:text-base">
@@ -165,50 +239,55 @@ export function ModelShowcasePage({
                 </p>
               ) : null}
 
-              <TelegramCTA
-                href={ctaHref}
-                label="Entrar no Grupo VIP"
-                className="mt-6 w-full sm:w-auto"
-                scrollTargetId="cta-final"
-              />
             </motion.div>
           </header>
 
           <div className="space-y-4 rounded-[36px] border border-white/10 bg-black/25 p-4 backdrop-blur-xl sm:p-6 lg:p-8">
             <MediaPreviewRail
-              eyebrow="Previas"
-              title={`Videos de ${model.name.split(' ')[0]}`}
-              description="Uma faixa independente para divulgar a modelo com os mesmos cards fluidos da home."
+              eyebrow={'Pr\u00e9vias'}
+              title={`Vídeos`}
+              description="Entre no GrupoVIP e tenha acesso a todo conteúdo."
               items={videoPreviewCards}
-              emptyMessage="Ainda nao existem videos liberados para essa modelo."
+              emptyMessage={'Ainda n\u00e3o existem v\u00eddeos liberados para essa modelo.'}
             />
 
             <MediaPreviewRail
-              eyebrow="Mais previas"
-              title={`Imagens de ${model.name.split(' ')[0]}`}
-              description="A galeria continua com imagens aleatorias do mesmo cadastro do painel admin."
+              eyebrow={'Mais pr\u00e9vias'}
+              title={`Imagens`}
+              description={
+                'Entre no GrupoVIP e tenha acesso a todo conteúdo.'
+              }
               items={imagePreviewCards}
-              emptyMessage="Ainda nao existem imagens liberadas para essa modelo."
+              emptyMessage={'Ainda n\u00e3o existem imagens liberadas para essa modelo.'}
               variant="portrait"
             />
 
+            <TelegramProof items={groupProofItems} />
+
             <div id="cta-final" className="pt-6">
-              <div className="rounded-[32px] border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent p-5 shadow-neon sm:p-6">
-                <h2 className="font-display text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                  Entrar no grupo para ver mais de {model.name.split(' ')[0]}
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-                  Escolha abaixo entre o acesso de 7 dias por R$ 9,99 ou 30 dias por
-                  R$ 19,99 para continuar no bot com a cobranca correta.
-                </p>
-                <PlanOptions plans={planOptions} className="mt-5" />
-              </div>
+              <FinalGroupCtaCard ctaHref={ctaHref} buttonRef={finalCtaButtonRef} />
             </div>
           </div>
         </div>
 
         <SiteFooter />
       </div>
+
+      {showFloatingCta ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[#09090c] via-[#09090c]/95 to-transparent px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-6 sm:hidden">
+          <div className="mx-auto max-w-[1440px]">
+            <TelegramCTA
+              href={ctaHref}
+              label="Entrar no Grupo VIP"
+              className="min-h-12 w-full px-5 py-3 text-sm"
+              scrollTargetId="cta-final"
+            />
+            <span className="mt-1 block text-center text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
+              {'Acesso imediato'}
+            </span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

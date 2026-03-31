@@ -223,21 +223,21 @@ export function PreviewCarousel({
               {items.map((item) => (
                 <article key={item.id} data-scroll-card className={cardClassName}>
                   <div className={aspectClassName}>
-                      <div className="pointer-events-none absolute inset-x-3 top-3 z-10">
-                        <span className="inline-flex rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75 backdrop-blur-md">
-                          {item.owner}
-                        </span>
-                      </div>
-                      <AutoplayMedia
-                        type={item.type}
-                        src={item.src}
-                        poster={item.thumbnail}
-                        alt={item.title}
-                        className="h-full w-full"
-                        preloadStrategy={item.type === 'video' ? 'auto' : 'metadata'}
-                        fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
-                        showVolumeToggle
-                      />
+                    <div className="pointer-events-none absolute inset-x-3 top-3 z-10">
+                      <span className="inline-flex rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75 backdrop-blur-md">
+                        {item.owner}
+                      </span>
+                    </div>
+                    <AutoplayMedia
+                      type={item.type}
+                      src={item.src}
+                      poster={item.thumbnail}
+                      alt={item.title}
+                      className="h-full w-full"
+                      preloadStrategy={item.type === 'video' ? 'auto' : 'metadata'}
+                      fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
+                      showVolumeToggle
+                    />
                   </div>
                 </article>
               ))}
@@ -245,15 +245,14 @@ export function PreviewCarousel({
               <div data-scroll-card className={ctaCardClassName}>
                 <div className={ctaContentClassName}>
                   <div className={ctaTextBlockClassName}>
-                    <h3 className={ctaTitleClassName}>
-                      Entrar no Grupo
-                    </h3>
+                    <h3 className={ctaTitleClassName}>Entrar no Grupo</h3>
                     <p className={ctaDescriptionClassName}>
-                      Entre no grupo VIP e tenha acesso a conteudos exclusivos de diversas
-                      modelos do Privacy, OnlyFans, XvideosRED, Close Friends e Telegram VIP.
+                      {
+                        'Entre no grupo VIP e tenha acesso a conte\u00fados exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, Close Friends e Telegram VIP.'
+                      }
                       <br />
                       <br />
-                      Tudo organizado em categorias para facilitar sua experiencia.
+                      {'Tudo organizado em categorias para facilitar sua experi\u00eancia.'}
                     </p>
                   </div>
 
@@ -265,7 +264,7 @@ export function PreviewCarousel({
                       scrollTargetId="cta-final"
                     />
                     <span className="text-center text-[10px] font-medium uppercase tracking-[0.16em] text-white/45 sm:text-[11px] sm:tracking-[0.18em]">
-                      Aprovacao Imediata
+                      {'Aprova\u00e7\u00e3o Imediata'}
                     </span>
                   </div>
                 </div>

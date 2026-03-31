@@ -1,6 +1,31 @@
 import { getAboutPath, getHomePath, getSupportPath } from '../lib/modelRoute';
 
+function shouldPreserveNativeNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
+  return (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
+
 export function SiteFooter() {
+  const handleOverlayLink =
+    (type: 'about' | 'support') => (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (typeof window === 'undefined' || shouldPreserveNativeNavigation(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      window.dispatchEvent(
+        new CustomEvent('allprivacy:open-static-info', {
+          detail: { type },
+        }),
+      );
+    };
+
   return (
     <footer className="border-t border-white/10 bg-black/35">
       <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-7 lg:px-8">
@@ -15,15 +40,23 @@ export function SiteFooter() {
             AllPrivacy.site
           </a>
           <p className="mt-1 text-sm text-zinc-400">
-            Entrada discreta e acesso organizado em um so lugar.
+            {'Entrada discreta e acesso organizado em um s\u00f3 lugar.'}
           </p>
           </div>
 
           <nav className="flex items-center justify-center gap-5 text-sm text-zinc-300 lg:justify-self-end">
-            <a href={getAboutPath()} className="transition hover:text-white">
+            <a
+              href={getAboutPath()}
+              onClick={handleOverlayLink('about')}
+              className="transition hover:text-white"
+            >
               Sobre
             </a>
-            <a href={getSupportPath()} className="transition hover:text-white">
+            <a
+              href={getSupportPath()}
+              onClick={handleOverlayLink('support')}
+              className="transition hover:text-white"
+            >
               Suporte
             </a>
           </nav>

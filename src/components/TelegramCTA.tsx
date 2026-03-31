@@ -59,7 +59,7 @@ export function TelegramCTA({
       target={scrollTargetId ? undefined : '_blank'}
       rel={scrollTargetId ? undefined : 'noreferrer'}
       onClick={handleClick}
-      className={`inline-flex min-h-14 items-center justify-center gap-3 rounded-full border border-white/10 bg-gradient-to-r from-rose-600 via-rose-500 to-violet-600 px-6 py-4 text-center font-display text-base font-semibold text-white shadow-glow transition-transform duration-300 hover:scale-[1.01] active:scale-[0.99] ${
+      className={`inline-flex min-h-14 items-center justify-center gap-3 overflow-hidden rounded-full border border-white/10 bg-gradient-to-r from-rose-600 via-rose-500 to-violet-600 bg-clip-padding px-6 py-4 text-center font-display text-base font-semibold text-white shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-transform duration-300 hover:scale-[1.01] active:scale-[0.99] ${
         isPreparingScroll ? 'pointer-events-none opacity-90' : ''
       } ${className}`}
       aria-busy={isPreparingScroll}

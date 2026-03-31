@@ -170,7 +170,7 @@ export function MediaPreviewRail({
                       poster={item.thumbnail}
                       alt={item.title}
                       className="h-full w-full"
-                      preloadStrategy={item.type === 'video' ? 'auto' : 'metadata'}
+                      preloadStrategy="metadata"
                       fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
                       showVolumeToggle
                     />

@@ -137,3 +137,22 @@ export function VolumeOffIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function BookmarkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M7 4.8h10a1.2 1.2 0 0 1 1.2 1.2v13.5c0 .7-.8 1.1-1.4.7L12 16.9l-4.8 3.3c-.6.4-1.4 0-1.4-.7V6A1.2 1.2 0 0 1 7 4.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 9.2h5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

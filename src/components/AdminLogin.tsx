@@ -26,7 +26,7 @@ export function AdminLogin({ isChecking, error, onLogin }: AdminLoginProps) {
     try {
       await onLogin({ username, password });
     } catch {
-      setFeedback('Usuario ou senha invalidos.');
+      setFeedback('Usu\u00e1rio ou senha inv\u00e1lidos.');
     } finally {
       setIsSubmitting(false);
     }
@@ -47,8 +47,7 @@ export function AdminLogin({ isChecking, error, onLogin }: AdminLoginProps) {
             AllPrivacy Admin
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-300">
-            Esta area e protegida. Faça login para gerenciar modelos, videos, imagens e
-            prints do grupo.
+            {'Esta \u00e1rea \u00e9 protegida. Fa\u00e7a login para gerenciar modelos, v\u00eddeos, imagens e prints do grupo.'}
           </p>
 
           <form className="mt-6 grid gap-3" onSubmit={(event) => void handleSubmit(event)}>
@@ -56,7 +55,7 @@ export function AdminLogin({ isChecking, error, onLogin }: AdminLoginProps) {
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               className="min-h-12 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-black/55 md:text-[15px]"
-              placeholder="Usuario"
+              placeholder={'Usu\u00e1rio'}
               autoComplete="username"
               disabled={isSubmitting || isChecking}
             />

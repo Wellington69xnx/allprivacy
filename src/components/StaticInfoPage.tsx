@@ -1,22 +1,23 @@
+import { getHomePath } from '../lib/modelRoute';
+import type { StaticInfoSection } from '../lib/staticInfo';
 import { BrandMark } from './BrandMark';
 import { SiteFooter } from './SiteFooter';
-import { getHomePath } from '../lib/modelRoute';
-
-interface StaticInfoSection {
-  title: string;
-  body: string;
-}
+import { TelegramCTA } from './TelegramCTA';
 
 interface StaticInfoPageProps {
   title: string;
   description: string;
   sections: StaticInfoSection[];
+  ctaLabel?: string;
+  ctaHref?: string;
 }
 
 export function StaticInfoPage({
   title,
   description,
   sections,
+  ctaLabel,
+  ctaHref,
 }: StaticInfoPageProps) {
   return (
     <div className="min-h-screen bg-ink text-white">
@@ -36,8 +37,8 @@ export function StaticInfoPage({
               href={getHomePath()}
               className="absolute left-4 top-1/2 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75 sm:inline-flex md:text-[13px]"
             >
-              <span aria-hidden="true">‹</span>
-              <span>Pagina inicial</span>
+              <span aria-hidden="true">{'\u2039'}</span>
+              <span>{'P\u00e1gina inicial'}</span>
             </a>
             <BrandMark href="/" />
           </div>
@@ -47,8 +48,8 @@ export function StaticInfoPage({
               href={getHomePath()}
               className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75"
             >
-              <span aria-hidden="true">‹</span>
-              <span>Pagina inicial</span>
+              <span aria-hidden="true">{'\u2039'}</span>
+              <span>{'P\u00e1gina inicial'}</span>
             </a>
           </div>
 
@@ -58,7 +59,7 @@ export function StaticInfoPage({
                 <h1 className="max-w-3xl font-display text-3xl font-semibold tracking-tight text-white sm:text-5xl">
                   {title}
                 </h1>
-                <p className="mt-4 max-w-3xl text-sm leading-6 text-zinc-300 sm:text-base">
+                <p className="mt-4 max-w-3xl whitespace-pre-line text-sm leading-6 text-zinc-300 sm:text-base">
                   {description}
                 </p>
               </div>
@@ -72,18 +73,40 @@ export function StaticInfoPage({
                     <h2 className="font-display text-xl font-semibold tracking-tight text-white">
                       {section.title}
                     </h2>
-                    <p className="mt-3 text-sm leading-6 text-zinc-300">
+                    <p className="mt-3 whitespace-pre-line text-sm leading-6 text-zinc-300">
                       {section.body}
                     </p>
                   </article>
                 ))}
               </div>
+
+              {ctaHref && ctaLabel ? (
+                <div className="hidden px-5 pb-5 sm:px-8 sm:pb-8 md:block">
+                  <div className="rounded-[26px] border border-white/10 bg-black/20 p-5">
+                    <TelegramCTA href={ctaHref} label={ctaLabel} className="w-full sm:w-auto" />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>
 
         <SiteFooter />
+        {ctaHref && ctaLabel ? (
+          <div
+            className="h-[calc(env(safe-area-inset-bottom)+6.25rem)] md:hidden"
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
+
+      {ctaHref && ctaLabel ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[#09090c] via-[#09090c]/95 to-transparent px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-6 md:hidden">
+          <div className="mx-auto max-w-[1440px]">
+            <TelegramCTA href={ctaHref} label={ctaLabel} className="min-h-12 w-full px-5 py-3 text-sm" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
