@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  claimMediaAudioFocus,
+  registerMediaAudioFocus,
+  releaseMediaAudioFocus,
+} from '../lib/mediaAudioFocus';
+import { rememberMediaPlaybackTime } from '../lib/mediaPlaybackMemory';
+import { hasWarmVideo, primeWarmVideo, rememberWarmVideo } from '../lib/mediaWarmCache';
 import type { MediaType } from '../types';
 import { VolumeOffIcon, VolumeOnIcon } from './icons';
 
@@ -29,14 +36,15 @@ export function AutoplayMedia({
 }: AutoplayMediaProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioFocusIdRef = useRef(`media-audio-${Math.random().toString(36).slice(2)}`);
   const [isVisible, setIsVisible] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isReady, setIsReady] = useState(type !== 'video');
   const [isMuted, setIsMuted] = useState(true);
 
-  const resolvedPreload =
-    preloadStrategy ?? (playMode === 'hover' ? 'metadata' : 'metadata');
+  const isWarmVideo = type === 'video' && Boolean(src) && hasWarmVideo(src);
+  const resolvedPreload = preloadStrategy ?? (isWarmVideo ? 'auto' : 'metadata');
   const hasDedicatedPoster = Boolean(poster && poster !== src);
   const isContained = fitMode === 'contain';
   const mediaFillClassName = isContained
@@ -73,10 +81,14 @@ export function AutoplayMedia({
       return;
     }
 
+    if (isWarmVideo) {
+      primeWarmVideo(src);
+    }
+
     if (resolvedPreload !== 'none') {
       videoRef.current.load();
     }
-  }, [resolvedPreload, src, type]);
+  }, [isWarmVideo, resolvedPreload, src, type]);
 
   useEffect(() => {
     if (type !== 'video' || !src || !videoRef.current) {
@@ -110,13 +122,27 @@ export function AutoplayMedia({
     }
   }, [playMode]);
 
+  useEffect(() => {
+    if (type !== 'video') {
+      return;
+    }
+
+    return registerMediaAudioFocus(audioFocusIdRef.current, () => {
+      setIsMuted(true);
+    });
+  }, [type]);
+
   const isInteractive = playMode === 'hover' && type === 'video' && Boolean(src);
   const shouldShowVolumeToggle = showVolumeToggle && type === 'video' && Boolean(src);
-
   return (
     <div
       ref={wrapperRef}
       className={`relative h-full w-full overflow-hidden rounded-[inherit] bg-black ${className}`}
+      onClickCapture={() => {
+        if (type === 'video' && src && videoRef.current) {
+          rememberMediaPlaybackTime(src, videoRef.current.currentTime);
+        }
+      }}
       onMouseEnter={isInteractive ? () => setIsHovered(true) : undefined}
       onMouseLeave={isInteractive ? () => setIsHovered(false) : undefined}
       onFocus={isInteractive ? () => setIsHovered(true) : undefined}
@@ -184,8 +210,14 @@ export function AutoplayMedia({
             loop
             playsInline
             preload={resolvedPreload}
+            onPlay={() => rememberWarmVideo(src)}
             onLoadedData={() => setIsReady(true)}
             onCanPlay={() => setIsReady(true)}
+            onTimeUpdate={() => {
+              if (src && videoRef.current) {
+                rememberMediaPlaybackTime(src, videoRef.current.currentTime);
+              }
+            }}
           />
 
           {!hasDedicatedPoster && !isReady ? (
@@ -198,7 +230,17 @@ export function AutoplayMedia({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                setIsMuted((current) => !current);
+                setIsMuted((current) => {
+                  const nextMuted = !current;
+
+                  if (nextMuted) {
+                    releaseMediaAudioFocus(audioFocusIdRef.current);
+                  } else {
+                    claimMediaAudioFocus(audioFocusIdRef.current);
+                  }
+
+                  return nextMuted;
+                });
               }}
               className="absolute bottom-3 right-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-md transition hover:bg-black/65 hover:text-white"
               aria-label={isMuted ? `Ativar audio de ${alt}` : `Desativar audio de ${alt}`}
@@ -212,13 +254,15 @@ export function AutoplayMedia({
           ) : null}
         </>
       ) : (
-        <img
-          src={poster}
-          alt={alt}
-          className={mediaFillClassName}
-          loading={resolvedPreload === 'auto' ? 'eager' : 'lazy'}
-          onLoad={() => setIsReady(true)}
-        />
+        <>
+          <img
+            src={poster}
+            alt={alt}
+            className={mediaFillClassName}
+            loading={resolvedPreload === 'auto' ? 'eager' : 'lazy'}
+            onLoad={() => setIsReady(true)}
+          />
+        </>
       )}
     </div>
   );

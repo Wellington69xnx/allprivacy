@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AdminLogin } from './components/AdminLogin';
 import { AdminPanel } from './components/AdminPanel';
 import { FinalGroupCtaCard } from './components/FinalGroupCtaCard';
 import { HeroSection } from './components/HeroSection';
 import { ModelModal } from './components/ModelModal';
 import { ModelShowcasePage } from './components/ModelShowcasePage';
+import { ModelVideoPage } from './components/ModelVideoPage';
 import { ModelsStories } from './components/ModelsStories';
 import { PreviewCarousel } from './components/PreviewCarousel';
 import { SiteFooter } from './components/SiteFooter';
@@ -16,6 +17,7 @@ import { getRandomPreviewCardsByType, heroBackdrop } from './data/models';
 import { useAdminAuth } from './hooks/useAdminAuth';
 import { useSiteContent } from './hooks/useSiteContent';
 import {
+  findModelByVideoRoute,
   findModelByRouteSlug,
   getAboutPath,
   getAdminPath,
@@ -39,7 +41,8 @@ type CurrentView =
   | { type: 'admin' }
   | { type: 'about' }
   | { type: 'support' }
-  | { type: 'model'; modelSlug: string };
+  | { type: 'model'; modelSlug: string }
+  | { type: 'model-video'; modelSlug: string; routeToken: string };
 
 function buildHeroBackgroundPool(
   mobileBackgrounds: { image: string }[],
@@ -105,6 +108,16 @@ function getCurrentView(): CurrentView {
     };
   }
 
+  const pathSegments = normalizedPathname.split('/').filter(Boolean);
+
+  if (pathSegments.length === 2) {
+    return {
+      type: 'model-video',
+      modelSlug: decodeURIComponent(pathSegments[0] || ''),
+      routeToken: decodeURIComponent(pathSegments[1] || ''),
+    };
+  }
+
   if (normalizedPathname !== getHomePath()) {
     return {
       type: 'model',
@@ -123,6 +136,7 @@ export default function App() {
   const [imagePreviewCards, setImagePreviewCards] = useState<PreviewCard[]>([]);
   const [heroBackgroundPool, setHeroBackgroundPool] = useState<string[]>([]);
   const [heroBackgroundSrc, setHeroBackgroundSrc] = useState<string | null>(null);
+  const heroBackgroundCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const { siteContent, isLoading: isSiteLoading, ...actions } = useSiteContent();
   const adminAuth = useAdminAuth();
 
@@ -245,8 +259,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setVideoPreviewCards(getRandomPreviewCardsByType(siteContent.models, 'video', 7));
-    setImagePreviewCards(getRandomPreviewCardsByType(siteContent.models, 'image', 10));
+    const visibleModels = siteContent.models.filter((model) => !model.hiddenOnHome);
+    setVideoPreviewCards(getRandomPreviewCardsByType(visibleModels, 'video', 7));
+    setImagePreviewCards(getRandomPreviewCardsByType(visibleModels, 'image', 10));
   }, [siteContent.models]);
 
   useEffect(() => {
@@ -303,9 +318,19 @@ export default function App() {
 
     let cancelled = false;
     const nextBackground = pickRandomHeroBackground(heroBackgroundPool, heroBackgroundSrc);
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = nextBackground;
+    const cachedImage = heroBackgroundCacheRef.current.get(nextBackground);
+
+    const ensureCachedImage = () => {
+      if (cachedImage) {
+        return cachedImage;
+      }
+
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = nextBackground;
+      heroBackgroundCacheRef.current.set(nextBackground, image);
+      return image;
+    };
 
     const applyBackground = () => {
       if (!cancelled) {
@@ -314,6 +339,8 @@ export default function App() {
     };
 
     const timeoutId = window.setTimeout(() => {
+      const image = ensureCachedImage();
+
       if (image.complete) {
         applyBackground();
         return;
@@ -329,8 +356,32 @@ export default function App() {
     };
   }, [heroBackgroundPool, heroBackgroundSrc]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || heroBackgroundPool.length === 0) {
+      return;
+    }
+
+    heroBackgroundPool.forEach((backgroundSrc) => {
+      if (!backgroundSrc || heroBackgroundCacheRef.current.has(backgroundSrc)) {
+        return;
+      }
+
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = backgroundSrc;
+      heroBackgroundCacheRef.current.set(backgroundSrc, image);
+    });
+  }, [heroBackgroundPool]);
+
   const selectedModel =
     siteContent.models.find((model) => model.id === selectedModelId) ?? null;
+  const visibleHomeModels = siteContent.models.filter((model) => !model.hiddenOnHome);
+  const handlePreviewOwnerSelect = (card: PreviewCard) => {
+    const nextModelId =
+      visibleHomeModels.find((model) => model.id === card.ownerId)?.id ?? null;
+
+    setSelectedModelId(nextModelId);
+  };
   const buildEntryHref = (payload: string) =>
     TELEGRAM_BOT_USERNAME
       ? getTelegramEntryUrl(TELEGRAM_BOT_USERNAME, payload)
@@ -389,6 +440,34 @@ export default function App() {
     );
   }
 
+  if (currentView.type === 'model-video') {
+    const showcaseVideoEntry = findModelByVideoRoute(
+      siteContent.models,
+      currentView.modelSlug,
+      currentView.routeToken,
+    );
+    const showcaseModel = showcaseVideoEntry?.model ?? null;
+    const showcaseContent = showcaseVideoEntry?.content ?? null;
+    const showcaseEntryHref = showcaseModel
+      ? buildEntryHref(getModelTelegramPayload(showcaseModel))
+      : TELEGRAM_GROUP_URL;
+
+    return (
+      <>
+        <ModelVideoPage
+          model={showcaseModel}
+          content={showcaseContent}
+          ctaHref={showcaseEntryHref}
+          isLoading={isSiteLoading}
+        />
+        <StaticInfoModal
+          content={selectedStaticInfo ? STATIC_INFO_CONTENT[selectedStaticInfo] : null}
+          onClose={() => setSelectedStaticInfo(null)}
+        />
+      </>
+    );
+  }
+
   if (currentView.type === 'about') {
     return (
       <>
@@ -432,6 +511,11 @@ export default function App() {
             }
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
+            onOwnerClick={handlePreviewOwnerSelect}
+            initialScrollIndex={1}
+            desktopInitialScrollIndex={0}
+            scrollAlign="center"
+            desktopScrollAlign="start"
           />
 
           <PreviewCarousel
@@ -442,13 +526,18 @@ export default function App() {
             emptyMessage="Nenhuma imagem cadastrada ainda. Adicione imagens pelo painel admin para preencher esta faixa."
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
+            onOwnerClick={handlePreviewOwnerSelect}
             variant="portrait"
+            initialScrollIndex={1}
+            desktopInitialScrollIndex={0}
+            scrollAlign="center"
+            desktopScrollAlign="start"
             sectionClassName="pt-11 sm:pt-10"
           />
 
           <TelegramProof items={siteContent.groupProofItems} />
           <ModelsStories
-            models={siteContent.models}
+            models={visibleHomeModels}
             onSelect={(model) => setSelectedModelId(model.id)}
             ctaTargetId="cta-final"
           />

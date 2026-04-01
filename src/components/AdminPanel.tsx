@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { getHomePath } from '../lib/modelRoute';
+import { getHomePath, getModelVideoPath } from '../lib/modelRoute';
 import type {
   HeroBackgroundTarget,
   ModelProfile,
@@ -47,6 +47,7 @@ interface AdminPanelProps {
     accentTo?: string;
   }) => Promise<void>;
   removeModel: (modelId: string) => Promise<void>;
+  toggleModelHomeVisibility: (modelId: string) => Promise<void>;
   addMediaToModel: (input: {
     modelId: string;
     type: 'image' | 'video';
@@ -67,6 +68,13 @@ interface AdminPanelProps {
     }>,
   ) => Promise<void>;
   removeMediaFromModel: (modelId: string, mediaId: string) => Promise<void>;
+  addModelFullContentVideo: (input: {
+    modelId: string;
+    videoUrl: string;
+    routeToken?: string;
+    title?: string;
+  }) => Promise<void>;
+  removeModelFullContentVideo: (modelId: string, contentId: string) => Promise<void>;
   addGroupProofItem: (input: { title: string; image: string }) => Promise<void>;
   removeGroupProofItem: (itemId: string) => Promise<void>;
   addHeroBackground: (input: {
@@ -192,20 +200,24 @@ function ghostButtonClassName() {
   return 'inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60';
 }
 
+function dangerGhostButtonClassName() {
+  return 'inline-flex min-h-11 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-100 transition hover:bg-red-500/16 disabled:cursor-not-allowed disabled:opacity-60';
+}
+
 function previewFrameClassName(shape: PreviewShape) {
   if (shape === 'circle') {
-    return 'mx-auto h-24 w-24 overflow-hidden rounded-full border border-white/10 bg-black';
+    return 'relative mx-auto h-24 w-24 overflow-hidden rounded-full border border-white/10 bg-black';
   }
 
   if (shape === 'landscape') {
-    return 'aspect-[16/10] overflow-hidden rounded-[22px] border border-white/10 bg-black';
+    return 'relative aspect-[16/10] overflow-hidden rounded-[22px] border border-white/10 bg-black';
   }
 
   if (shape === 'portrait') {
-    return 'aspect-[9/16] overflow-hidden rounded-[22px] border border-white/10 bg-black';
+    return 'relative aspect-[9/16] overflow-hidden rounded-[22px] border border-white/10 bg-black';
   }
 
-  return 'aspect-square overflow-hidden rounded-[22px] border border-white/10 bg-black';
+  return 'relative aspect-square overflow-hidden rounded-[22px] border border-white/10 bg-black';
 }
 
 function usePreviewSrc(file: File | null, url: string) {
@@ -243,6 +255,26 @@ function PreviewImage({
 
   if (!previewSrc) {
     return null;
+  }
+
+  if (shape === 'landscape') {
+    return (
+      <div className={previewFrameClassName(shape)}>
+        <img
+          src={previewSrc}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full scale-105 object-cover opacity-25 blur-xl"
+          loading="lazy"
+        />
+        <img
+          src={previewSrc}
+          alt={alt}
+          className="relative h-full w-full object-contain"
+          loading="lazy"
+        />
+      </div>
+    );
   }
 
   return (
@@ -345,7 +377,7 @@ function UploadField({
   previewAlt: string;
 }) {
   return (
-    <div className="grid gap-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
+    <div className="grid self-start gap-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
       <div className="flex items-center justify-between gap-3">
         <span className={labelClassName()}>{label}</span>
         {file ? <span className="max-w-[55%] truncate text-xs text-white/45">{file.name}</span> : null}
@@ -805,8 +837,11 @@ export function AdminPanel({
   addModel,
   updateModel,
   removeModel,
+  toggleModelHomeVisibility,
   addMediaBatchToModel,
   removeMediaFromModel,
+  addModelFullContentVideo,
+  removeModelFullContentVideo,
   addGroupProofItem,
   removeGroupProofItem,
   addHeroBackground,
@@ -847,6 +882,7 @@ export function AdminPanel({
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   const [editingModelForm, setEditingModelForm] = useState(emptyModelForm);
   const [editingModelFiles, setEditingModelFiles] = useState(emptyModelFiles);
+  const [fullContentFiles, setFullContentFiles] = useState<Record<string, File | null>>({});
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({
     model: false,
     media: false,
@@ -912,6 +948,25 @@ export function AdminPanel({
       ...current,
       [sectionId]: !current[sectionId],
     }));
+  };
+
+  const getModelFullContentHref = (
+    model: Pick<ModelProfile, 'id' | 'name' | 'handle'>,
+    routeToken: string,
+  ) => {
+    const normalizedRouteToken = routeToken.trim();
+
+    if (!normalizedRouteToken) {
+      return '';
+    }
+
+    const relativePath = getModelVideoPath(model, normalizedRouteToken);
+
+    if (typeof window === 'undefined') {
+      return relativePath;
+    }
+
+    return `${window.location.origin}${relativePath}`;
   };
 
   const updateTaskProgress = (taskId: string, label: string, value: number) => {
@@ -1249,6 +1304,84 @@ export function AdminPanel({
     }
   };
 
+  const handleSaveFullContentVideo = async (model: ModelProfile) => {
+    if (activeTask) {
+      return;
+    }
+
+    const taskId = `full-content-${model.id}`;
+    const selectedFile = fullContentFiles[model.id] ?? null;
+
+    if (!selectedFile) {
+      setFeedback('Selecione um video para salvar no conteudo completo.');
+      return;
+    }
+
+    setActiveTask(taskId);
+    updateTaskProgress(taskId, 'Enviando video exclusivo', 8);
+    setFeedback(null);
+
+    try {
+      const videoUrl = await resolveAsset({
+        file: selectedFile,
+        fallbackUrl: '',
+        taskId,
+        label: 'Enviando video exclusivo',
+        progressRange: [18, 86],
+        options: {
+          bucket: 'model-full-video',
+          modelName: model.name,
+          mediaType: 'video',
+        },
+      });
+
+      updateTaskProgress(taskId, 'Gravando rota exclusiva', 92);
+      await addModelFullContentVideo({
+        modelId: model.id,
+        videoUrl,
+      });
+
+      updateTaskProgress(taskId, 'Conteudo completo salvo', 100);
+      setFullContentFiles((current) => ({
+        ...current,
+        [model.id]: null,
+      }));
+      setFeedback('Video exclusivo salvo. O link da pagina ja esta pronto no painel.');
+    } catch {
+      setFeedback('Nao foi possivel salvar o video exclusivo agora.');
+    } finally {
+      setActiveTask(null);
+      clearTaskProgress();
+    }
+  };
+
+  const handleRemoveFullContentVideo = async (modelId: string, contentId: string) => {
+    if (activeTask) {
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Tem certeza que deseja excluir este conteúdo completo?')
+    ) {
+      return;
+    }
+
+    const taskId = `remove-full-content-${contentId}`;
+
+    setActiveTask(taskId);
+    setFeedback(null);
+
+    try {
+      await removeModelFullContentVideo(modelId, contentId);
+      setFeedback('Video exclusivo removido da pagina independente.');
+    } catch {
+      setFeedback('Nao foi possivel remover o video exclusivo agora.');
+    } finally {
+      setActiveTask(null);
+    }
+  };
+
   const handleGroupProofSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -1510,11 +1643,27 @@ export function AdminPanel({
       return;
     }
 
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Tem certeza que deseja remover esta modelo do site?')
+    ) {
+      return;
+    }
+
     setActiveTask(`remove-model-${modelId}`);
     setFeedback(null);
 
     try {
       await removeModel(modelId);
+      setFullContentFiles((current) => {
+        if (!(modelId in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[modelId];
+        return next;
+      });
 
       if (editingModelId === modelId) {
         stopEditingModel();
@@ -1532,8 +1681,37 @@ export function AdminPanel({
     }
   };
 
+  const handleToggleModelHomeVisibility = async (model: ModelProfile) => {
+    if (activeTask) {
+      return;
+    }
+
+    setActiveTask(`toggle-home-model-${model.id}`);
+    setFeedback(null);
+
+    try {
+      await toggleModelHomeVisibility(model.id);
+      setFeedback(
+        model.hiddenOnHome
+          ? 'Modelo exibida novamente na home.'
+          : 'Modelo ocultada da home temporariamente.',
+      );
+    } catch {
+      setFeedback('Nao foi possivel alterar a visibilidade da modelo na home.');
+    } finally {
+      setActiveTask(null);
+    }
+  };
+
   const handleRemoveMedia = async (modelId: string, mediaId: string) => {
     if (activeTask) {
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Tem certeza que deseja excluir este conteúdo?')
+    ) {
       return;
     }
 
@@ -1555,6 +1733,13 @@ export function AdminPanel({
       return;
     }
 
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Tem certeza que deseja excluir este print do grupo?')
+    ) {
+      return;
+    }
+
     setActiveTask(`remove-group-${itemId}`);
     setFeedback(null);
 
@@ -1573,6 +1758,13 @@ export function AdminPanel({
     itemId: string,
   ) => {
     if (activeTask) {
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm('Tem certeza que deseja excluir este fundo da home?')
+    ) {
       return;
     }
 
@@ -2123,6 +2315,9 @@ export function AdminPanel({
               {siteContent.models.map((model) => {
                 const isExpanded = expandedModelId === model.id;
                 const isEditing = editingModelId === model.id;
+                const currentFullContentFile = fullContentFiles[model.id] ?? null;
+                const fullContentTaskId = `full-content-${model.id}`;
+                const fullContentItems = model.fullContentVideos || [];
 
                 return (
                   <article
@@ -2154,8 +2349,13 @@ export function AdminPanel({
                             <p className="truncate text-sm text-zinc-300">{model.handle}</p>
                           ) : null}
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">
-                            {model.gallery.length} conteudo(s)
+                            {model.gallery.length} conteudo(s) | {fullContentItems.length} completo(s)
                           </p>
+                          {model.hiddenOnHome ? (
+                            <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-amber-200/85">
+                              Oculta da home
+                            </p>
+                          ) : null}
                         </div>
                       </div>
 
@@ -2165,9 +2365,10 @@ export function AdminPanel({
                     </button>
 
                     {isExpanded ? (
-                      <div className="mt-4 grid gap-4 lg:grid-cols-[260px,1fr]">
-                        <div className="overflow-hidden rounded-[24px] border border-white/10 bg-black">
-                          <div className="aspect-[16/10] sm:aspect-[5/4] lg:aspect-[4/5]">
+                      <div className="mt-4 space-y-4">
+                        <div className="grid gap-4 xl:grid-cols-[minmax(0,420px),1fr] xl:items-start">
+                          <div className="w-full max-w-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-black">
+                          <div className="aspect-[16/10]">
                             <img
                               src={model.coverImage}
                               alt={model.name}
@@ -2177,8 +2378,16 @@ export function AdminPanel({
                           </div>
                         </div>
 
-                        <div className="min-w-0">
+                          <div className="min-w-0 self-start">
                           <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleModelHomeVisibility(model)}
+                              disabled={Boolean(activeTask)}
+                              className={ghostButtonClassName()}
+                            >
+                              {model.hiddenOnHome ? 'Mostrar na home' : 'Ocultar da home'}
+                            </button>
                             <button
                               type="button"
                               onClick={() =>
@@ -2192,20 +2401,22 @@ export function AdminPanel({
                               type="button"
                               onClick={() => void handleRemoveModel(model.id)}
                               disabled={Boolean(activeTask)}
-                              className={ghostButtonClassName()}
+                              className={dangerGhostButtonClassName()}
                             >
                               Remover
                             </button>
                           </div>
 
                           {model.tagline ? (
-                            <p className="mt-3 text-sm leading-6 text-zinc-300">
+                            <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300">
                               {model.tagline}
                             </p>
                           ) : null}
+                        </div>
+                        </div>
 
-                          {isEditing ? (
-                            <div className="mt-4 grid gap-3 rounded-[24px] border border-white/10 bg-black/30 p-4 sm:grid-cols-2">
+                        {isEditing ? (
+                          <div className="grid gap-3 rounded-[24px] border border-white/10 bg-black/30 p-4 sm:grid-cols-2 sm:items-start">
                               <input
                                 value={editingModelForm.name}
                                 onChange={(event) =>
@@ -2307,12 +2518,126 @@ export function AdminPanel({
                             </div>
                           ) : null}
 
-                          {model.gallery.length === 0 ? (
-                            <p className="mt-4 text-sm text-zinc-400">
+                        <div className="rounded-[24px] border border-white/10 bg-black/30 p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <span className={labelClassName()}>Conteudo completo</span>
+                                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                                  Adicione videos exclusivos com link proprio e acompanhe as visualizacoes.
+                                </p>
+                              </div>
+                              <span className="text-xs text-white/45">
+                                {fullContentItems.length} video(s) exclusivo(s)
+                              </span>
+                            </div>
+
+                            {fullContentItems.length > 0 ? (
+                              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
+                                {fullContentItems.map((item) => {
+                                  const itemHref = getModelFullContentHref(model, item.routeToken);
+
+                                  return (
+                                    <article
+                                      key={item.id}
+                                      className="overflow-hidden rounded-[22px] border border-white/10 bg-black"
+                                    >
+                                      <div className="aspect-[4/5] bg-zinc-950">
+                                        <AutoplayMedia
+                                          type="video"
+                                          src={item.videoUrl}
+                                          poster={model.coverImage}
+                                          alt={item.title}
+                                          className="h-full w-full"
+                                          playMode="hover"
+                                          preloadStrategy="metadata"
+                                        />
+                                      </div>
+                                      <div className="grid gap-2 px-3 py-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-medium text-white/85">
+                                              {item.title}
+                                            </div>
+                                            <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/45">
+                                              {item.views} visualizacao(oes)
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleRemoveFullContentVideo(model.id, item.id)}
+                                            disabled={Boolean(activeTask)}
+                                            className="rounded-full border border-white/10 px-2 py-1 text-[11px] text-white/70 disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
+                                            X
+                                          </button>
+                                        </div>
+                                        <a
+                                          href={itemHref}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="break-all text-[11px] text-rose-200 underline-offset-4 transition hover:text-white hover:underline"
+                                        >
+                                          {itemHref}
+                                        </a>
+                                      </div>
+                                    </article>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+
+                            <div className="mt-4 grid gap-3">
+                              <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
+                                <input
+                                  type="file"
+                                  accept="video/*"
+                                  className="hidden"
+                                  disabled={Boolean(activeTask)}
+                                  onChange={(event) =>
+                                    setFullContentFiles((current) => ({
+                                      ...current,
+                                      [model.id]: event.target.files?.[0] ?? null,
+                                    }))
+                                  }
+                                />
+                                {currentFullContentFile
+                                  ? `Selecionado: ${currentFullContentFile.name}`
+                                  : 'Selecionar video exclusivo'}
+                              </label>
+
+                              {currentFullContentFile ? (
+                                <div className="w-[160px] max-w-full">
+                                  <PendingMediaPreview file={currentFullContentFile} />
+                                </div>
+                              ) : null}
+
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveFullContentVideo(model)}
+                                  disabled={Boolean(activeTask)}
+                                  className={buttonClassName()}
+                                >
+                                  {getSubmitLabel(
+                                    fullContentTaskId,
+                                    'Adicionar conteudo completo',
+                                    'Salvando conteudo completo...',
+                                  )}
+                                </button>
+                              </div>
+
+                              {getTaskProgress(fullContentTaskId) ? (
+                                <TaskProgressBar progress={getTaskProgress(fullContentTaskId)!} />
+                              ) : null}
+                            </div>
+                          </div>
+
+                        {model.gallery.length === 0 ? (
+                          <p className="text-sm text-zinc-400">
                               Essa modelo ainda nao tem conteudo cadastrado.
-                            </p>
-                          ) : (
-                            <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
                               {model.gallery.map((item) => (
                                 <div key={item.id} className="relative overflow-hidden rounded-2xl">
                                   <div className="aspect-[4/5] bg-zinc-950">
@@ -2336,9 +2661,8 @@ export function AdminPanel({
                                   </button>
                                 </div>
                               ))}
-                            </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </article>

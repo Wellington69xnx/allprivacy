@@ -99,6 +99,56 @@ video {
   animation: skeleton-shimmer 1.45s ease-in-out infinite;
 }
 
+input[type='range'].allprivacy-player-progress {
+  height: 20px;
+}
+
+input[type='range'].allprivacy-player-progress::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(244, 63, 94, 0.95) 0%,
+      rgba(168, 85, 247, 0.95) var(--progress, 0%),
+      rgba(255, 255, 255, 0.14) var(--progress, 0%),
+      rgba(255, 255, 255, 0.14) 100%
+    );
+}
+
+input[type='range'].allprivacy-player-progress::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  height: 16px;
+  width: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: #0b0b10;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+}
+
+input[type='range'].allprivacy-player-progress::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+input[type='range'].allprivacy-player-progress::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.95), rgba(168, 85, 247, 0.95));
+}
+
+input[type='range'].allprivacy-player-progress::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: #0b0b10;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+}
+
 @keyframes skeleton-shimmer {
   100% {
     transform: translateX(100%);

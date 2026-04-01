@@ -5,6 +5,7 @@ import { getHomePath } from '../lib/modelRoute';
 import type { GroupProofItem, ModelProfile } from '../types';
 import { BrandMark } from './BrandMark';
 import { FinalGroupCtaCard } from './FinalGroupCtaCard';
+import { VerifiedBadgeIcon } from './icons';
 import { MediaPreviewRail } from './MediaPreviewRail';
 import { SiteFooter } from './SiteFooter';
 import { TelegramProof } from './TelegramProof';
@@ -193,56 +194,59 @@ export function ModelShowcasePage({
             </div>
           </div>
 
-          <header className="pt-28 sm:pt-8">
+          <header className="pt-24 sm:pt-8">
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="w-full py-12 sm:py-14"
+              className="w-full pt-12 pb-4 sm:py-14"
             >
               <div className="mt-0 flex items-start justify-between gap-4 sm:mt-5 sm:gap-5">
                 <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-5">
-                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border border-white/10 bg-black/40 sm:h-20 sm:w-20">
-                  <img
-                    src={model.profileImage}
-                    alt={model.name}
-                    className="h-full w-full object-cover"
-                    loading="eager"
-                  />
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border border-white/10 bg-black/40 sm:h-20 sm:w-20">
+                    <img
+                      src={model.profileImage}
+                      alt={model.name}
+                      className="h-full w-full object-cover"
+                      loading="eager"
+                    />
+                  </div>
+                    <div className="min-w-0 self-center">
+                      <div className="mb-2 inline-flex max-w-full items-center gap-2 rounded-full border border-[#5ea8ff]/35 bg-[#5ea8ff]/16 px-3 py-1.5 text-[11px] font-semibold tracking-[0.02em] text-white/88 shadow-[0_10px_24px_rgba(0,0,0,0.18)] sm:mb-3 sm:text-xs">
+                        <VerifiedBadgeIcon className="h-4 w-4 shrink-0 text-[#4da3ff]" />
+                        <span className="truncate">{'Conteúdo completo no GrupoVIP'}</span>
+                      </div>
+                      <h1 className="font-display text-4xl font-semibold leading-[0.94] tracking-tight text-white sm:text-6xl">
+                        {model.name}
+                      </h1>
+                      {model.handle ? (
+                        <p className="-mt-0.5 text-sm leading-none text-zinc-300 sm:-mt-1 sm:text-base">
+                          {model.handle}
+                        </p>
+                      ) : null}
+                    </div>
+                  <div className="ml-auto hidden shrink-0 sm:inline-grid sm:gap-2">
+                    <TelegramCTA
+                      href={ctaHref}
+                      label="Entrar no Grupo VIP"
+                      className="min-h-16 w-auto min-w-[400px] px-8 py-4 text-[1.22rem]"
+                      scrollTargetId="cta-final"
+                    />
+                    <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+                      {'Acesso imediato'}
+                    </span>
+                  </div>
                 </div>
-                <div className="min-w-0 self-center">
-                  <h1 className="font-display text-4xl font-semibold leading-[0.94] tracking-tight text-white sm:text-6xl">
-                    {model.name}
-                  </h1>
-                  {model.handle ? (
-                    <p className="-mt-0.5 text-sm leading-none text-zinc-300 sm:-mt-1 sm:text-base">
-                      {model.handle}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="ml-auto hidden shrink-0 sm:inline-grid sm:gap-2">
-                  <TelegramCTA
-                    href={ctaHref}
-                    label="Entrar no Grupo VIP"
-                    className="min-h-16 w-auto min-w-[400px] px-8 py-4 text-[1.22rem]"
-                    scrollTargetId="cta-final"
-                  />
-                  <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-                    {'Acesso imediato'}
-                  </span>
-                </div>
-              </div>
               </div>
               {model.tagline ? (
                 <p className="mt-5 max-w-[44ch] text-sm leading-6 text-zinc-200 sm:text-base">
                   {model.tagline}
                 </p>
               ) : null}
-
             </motion.div>
           </header>
 
-          <div className="space-y-4 rounded-[36px] border border-white/10 bg-black/25 p-4 backdrop-blur-xl sm:p-6 lg:p-8">
+          <div className="space-y-4">
             <MediaPreviewRail
               eyebrow={'Pr\u00e9vias'}
               title={`Vídeos`}

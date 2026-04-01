@@ -20,6 +20,7 @@ const telegramFileCachePath = path.join(storageDir, 'telegram-file-cache.json');
 const distDir = path.join(projectRoot, 'dist');
 const telegramPhotoUploadLimitBytes = 10 * 1024 * 1024;
 const telegramOtherUploadLimitBytes = 50 * 1024 * 1024;
+const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 3001);
 const sitePublicUrl = process.env.SITE_PUBLIC_URL || `http://localhost:${port}`;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
@@ -103,6 +104,10 @@ const accentPairs = [
 
 function createId(prefix) {
   return `${prefix}-${randomUUID()}`;
+}
+
+function createRouteToken() {
+  return randomUUID().replace(/-/g, '').slice(0, 12).toLowerCase();
 }
 
 function formatCurrencyBRL(amount) {
@@ -418,6 +423,9 @@ async function buildUploadPlanFromMeta(meta, file) {
   } else if (bucket === 'model-media') {
     directory = path.join(uploadsDir, modelFolder);
     baseFilename = `${modelDisplayName} ${mediaType === 'video' ? 'video' : 'imagem'}`;
+  } else if (bucket === 'model-full-video') {
+    directory = path.join(uploadsDir, 'full-content', modelFolder);
+    baseFilename = `${modelDisplayName} conteudo completo`;
   } else if (bucket === 'hero-background') {
     directory = path.join(uploadsDir, 'hero-backgrounds', target);
     baseFilename = `background ${target}`;
@@ -557,8 +565,24 @@ async function migrateSiteContentFiles(siteContent) {
         },
         movedAssets,
       ),
+      fullContentVideos: [],
       gallery: [],
     };
+
+    for (const item of model.fullContentVideos || []) {
+      nextModel.fullContentVideos.push({
+        ...item,
+        videoUrl: await migrateAssetUrl(
+          item.videoUrl,
+          {
+            bucket: 'model-full-video',
+            modelName: model.name,
+            mediaType: 'video',
+          },
+          movedAssets,
+        ),
+      });
+    }
 
     for (const item of model.gallery) {
       if (item.type === 'video') {
@@ -691,6 +715,55 @@ function normalizeMedia(item) {
   };
 }
 
+function normalizeModelFullContentVideo(item, index = 0) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const videoUrl = toText(item.videoUrl);
+
+  if (!videoUrl) {
+    return null;
+  }
+
+  return {
+    id: toText(item.id) || createId('full-content'),
+    title: toText(item.title) || `Conteudo completo ${index + 1}`,
+    routeToken: toText(item.routeToken) || createRouteToken(),
+    videoUrl,
+    views: Math.max(0, Number(item.views || 0) || 0),
+    comments: Array.isArray(item.comments)
+      ? item.comments
+          .map((comment, commentIndex) =>
+            normalizeModelFullContentComment(comment, commentIndex),
+          )
+          .filter(Boolean)
+      : [],
+  };
+}
+
+function normalizeModelFullContentComment(item, index = 0) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const name = toText(item.name);
+  const message = toText(item.message);
+
+  if (!name || !message) {
+    return null;
+  }
+
+  const createdAt = toText(item.createdAt) || new Date().toISOString();
+
+  return {
+    id: toText(item.id) || createId(`full-comment-${index + 1}`),
+    name: name.slice(0, 60),
+    message: message.slice(0, 1200),
+    createdAt,
+  };
+}
+
 function normalizeModel(model, index = 0) {
   if (!model || typeof model !== 'object') {
     return null;
@@ -710,10 +783,18 @@ function normalizeModel(model, index = 0) {
     name,
     handle: toText(model.handle),
     tagline: toText(model.tagline),
+    hiddenOnHome: Boolean(model.hiddenOnHome),
     accentFrom: toText(model.accentFrom) || accentPair[0],
     accentTo: toText(model.accentTo) || accentPair[1],
     profileImage,
     coverImage,
+    fullContentVideos: Array.isArray(model.fullContentVideos)
+      ? model.fullContentVideos
+          .map((item, itemIndex) => normalizeModelFullContentVideo(item, itemIndex))
+          .filter(Boolean)
+      : model.fullContentVideo
+        ? [normalizeModelFullContentVideo(model.fullContentVideo, 0)].filter(Boolean)
+        : [],
     gallery: Array.isArray(model.gallery)
       ? model.gallery.map(normalizeMedia).filter(Boolean)
       : [],
@@ -828,6 +909,7 @@ async function syncSiteContentWithRecentUploads(siteContent, siteContentUpdatedA
       [
         toText(model.profileImage),
         toText(model.coverImage),
+        ...(model.fullContentVideos || []).map((item) => toText(item.videoUrl)),
         ...model.gallery.flatMap((item) => [toText(item.thumbnail), toText(item.src)]),
       ].filter(Boolean),
     );
@@ -955,6 +1037,102 @@ async function writeSiteContent(content) {
   );
 
   return normalized;
+}
+
+async function incrementModelFullContentView(routeToken) {
+  const normalizedRouteToken = toText(routeToken).toLowerCase();
+
+  if (!normalizedRouteToken) {
+    return null;
+  }
+
+  const siteContent = await readSiteContent();
+  let matchedPayload = null;
+
+  const nextContent = {
+    ...siteContent,
+    models: siteContent.models.map((model) => {
+      const nextFullContentVideos = (model.fullContentVideos || []).map((item) => {
+        if (toText(item.routeToken).toLowerCase() !== normalizedRouteToken) {
+          return item;
+        }
+
+        const nextViews = Math.max(0, Number(item.views || 0) || 0) + 1;
+        matchedPayload = {
+          modelId: model.id,
+          contentId: item.id,
+          views: nextViews,
+        };
+
+        return {
+          ...item,
+          views: nextViews,
+        };
+      });
+
+      return {
+        ...model,
+        fullContentVideos: nextFullContentVideos,
+      };
+    }),
+  };
+
+  if (!matchedPayload) {
+    return null;
+  }
+
+  await writeSiteContent(nextContent);
+  return matchedPayload;
+}
+
+async function addModelFullContentComment(routeToken, name, message) {
+  const normalizedRouteToken = toText(routeToken).toLowerCase();
+  const normalizedName = toText(name).trim().slice(0, 60);
+  const normalizedMessage = toText(message).trim().slice(0, 1200);
+
+  if (!normalizedRouteToken || !normalizedName || !normalizedMessage) {
+    return null;
+  }
+
+  const nextComment = {
+    id: createId('full-comment'),
+    name: normalizedName,
+    message: normalizedMessage,
+    createdAt: new Date().toISOString(),
+  };
+
+  const siteContent = await readSiteContent();
+  let matchedComment = null;
+
+  const nextContent = {
+    ...siteContent,
+    models: siteContent.models.map((model) => {
+      const nextFullContentVideos = (model.fullContentVideos || []).map((item) => {
+        if (toText(item.routeToken).toLowerCase() !== normalizedRouteToken) {
+          return item;
+        }
+
+        matchedComment = nextComment;
+
+        return {
+          ...item,
+          comments: [...(item.comments || []), nextComment],
+        };
+      });
+
+      return {
+        ...model,
+        fullContentVideos: nextFullContentVideos,
+      };
+    }),
+  };
+
+  if (!matchedComment) {
+    return null;
+  }
+
+  await writeSiteContent(nextContent);
+  return matchedComment;
 }
 
 function isBotCacheableExtension(extension) {
@@ -1412,6 +1590,7 @@ const upload = multer({
 });
 
 const app = express();
+app.set('trust proxy', true);
 
 app.use(express.json({ limit: '20mb' }));
 app.use('/uploads', express.static(uploadsDir));
@@ -1466,6 +1645,44 @@ app.get('/api/health', async (_req, res) => {
       siteContent.heroBackgrounds.mobile.length + siteContent.heroBackgrounds.desktop.length,
     timestamp: new Date().toISOString(),
   });
+});
+
+app.post('/api/full-content/view', async (req, res) => {
+  const routeToken = toText(req.body?.routeToken);
+
+  if (!routeToken) {
+    res.status(400).json({ message: 'routeToken obrigatorio.' });
+    return;
+  }
+
+  const result = await incrementModelFullContentView(routeToken);
+
+  if (!result) {
+    res.status(404).json({ message: 'Conteudo completo nao encontrado.' });
+    return;
+  }
+
+  res.json({ ok: true, ...result });
+});
+
+app.post('/api/full-content/comment', async (req, res) => {
+  const routeToken = toText(req.body?.routeToken);
+  const name = toText(req.body?.name);
+  const message = toText(req.body?.message);
+
+  if (!routeToken || !name.trim() || !message.trim()) {
+    res.status(400).json({ message: 'Nome, comentario e routeToken sao obrigatorios.' });
+    return;
+  }
+
+  const comment = await addModelFullContentComment(routeToken, name, message);
+
+  if (!comment) {
+    res.status(404).json({ message: 'Conteudo completo nao encontrado.' });
+    return;
+  }
+
+  res.json({ ok: true, comment });
 });
 
 app.post('/api/payments/syncpay/webhook', async (req, res) => {
@@ -1667,8 +1884,8 @@ const telegramBot = startTelegramBot({
   },
 });
 
-app.listen(port, () => {
-  console.log(`AllPrivacy API pronta em http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`AllPrivacy API pronta em http://localhost:${port} (bind ${host})`);
 
   if (telegramBot.enabled) {
     console.log('Bot Telegram iniciado com integracao ao conteudo do site.');

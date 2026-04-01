@@ -23,6 +23,14 @@ function getFirstSegmentSlug(value: string) {
   return normalized.split('-').filter(Boolean)[0] || normalized;
 }
 
+export function getModelVideoBaseSlug(model: Pick<ModelProfile, 'id' | 'name' | 'handle'>) {
+  return (
+    getFirstSegmentSlug(model.handle) ||
+    getFirstSegmentSlug(model.name) ||
+    getModelRouteSlug(model)
+  );
+}
+
 export function getHomePath() {
   return '/';
 }
@@ -43,6 +51,13 @@ export function getModelPath(model: Pick<ModelProfile, 'id' | 'name' | 'handle'>
   return `/${getModelRouteSlug(model)}`;
 }
 
+export function getModelVideoPath(
+  model: Pick<ModelProfile, 'id' | 'name' | 'handle'>,
+  routeToken: string,
+) {
+  return `/${getModelVideoBaseSlug(model)}/${encodeURIComponent(routeToken)}`;
+}
+
 export function findModelByRouteSlug(models: ModelProfile[], routeSlug: string) {
   const normalizedRouteSlug = sanitizeModelSlug(routeSlug);
 
@@ -52,4 +67,39 @@ export function findModelByRouteSlug(models: ModelProfile[], routeSlug: string) 
     models.find((model) => model.id === routeSlug) ||
     null
   );
+}
+
+export function findModelByVideoRoute(
+  models: ModelProfile[],
+  routeSlug: string,
+  routeToken: string,
+) {
+  const normalizedRouteSlug = sanitizeModelSlug(routeSlug);
+  const normalizedRouteToken = routeToken.trim().toLowerCase();
+
+  for (const model of models) {
+    const hasMatchingSlug =
+      getModelVideoBaseSlug(model) === normalizedRouteSlug ||
+      getModelRouteSlug(model) === normalizedRouteSlug ||
+      getFirstSegmentSlug(model.name) === normalizedRouteSlug ||
+      getFirstSegmentSlug(model.handle) === normalizedRouteSlug;
+
+    if (!hasMatchingSlug) {
+      continue;
+    }
+
+    const matchingContent =
+      model.fullContentVideos?.find(
+        (item) => item.routeToken?.trim().toLowerCase() === normalizedRouteToken,
+      ) || null;
+
+    if (matchingContent) {
+      return {
+        model,
+        content: matchingContent,
+      };
+    }
+  }
+
+  return null;
 }

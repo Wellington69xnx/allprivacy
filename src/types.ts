@@ -4,6 +4,7 @@ export type UploadAssetBucket =
   | 'model-profile'
   | 'model-cover'
   | 'model-media'
+  | 'model-full-video'
   | 'hero-background'
   | 'group-proof';
 
@@ -16,22 +17,44 @@ export interface ModelMedia {
   src?: string;
 }
 
+export interface ModelFullContentVideo {
+  id: string;
+  title: string;
+  routeToken: string;
+  videoUrl: string;
+  views: number;
+  comments?: ModelFullContentComment[];
+}
+
+export interface ModelFullContentComment {
+  id: string;
+  name: string;
+  message: string;
+  createdAt: string;
+}
+
 export interface ModelProfile {
   id: string;
   name: string;
   handle: string;
   tagline: string;
+  hiddenOnHome?: boolean;
   status?: string;
   accentFrom: string;
   accentTo: string;
   profileImage: string;
   coverImage: string;
   gallery: ModelMedia[];
+  fullContentVideos?: ModelFullContentVideo[];
 }
 
 export interface PreviewCard {
   id: string;
+  ownerId: string;
   owner: string;
+  ownerHandle: string;
+  ownerProfileImage: string;
+  ownerCoverImage: string;
   title: string;
   type: MediaType;
   thumbnail: string;

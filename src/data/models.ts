@@ -24,7 +24,11 @@ export function getRandomPreviewCards(models: ModelProfile[], limit = 12): Previ
   const allItems = models.flatMap((model) =>
     model.gallery.map((item, index) => ({
       id: `${model.id}-preview-${index}`,
+      ownerId: model.id,
       owner: model.name,
+      ownerHandle: model.handle,
+      ownerProfileImage: model.profileImage,
+      ownerCoverImage: model.coverImage,
       title: item.title,
       type: item.type,
       thumbnail: item.thumbnail,
@@ -47,7 +51,11 @@ export function getRandomPreviewCardsByType(
       .filter((item) => item.type === type)
       .map((item, index) => ({
         id: `${model.id}-${type}-preview-${index}`,
+        ownerId: model.id,
         owner: model.name,
+        ownerHandle: model.handle,
+        ownerProfileImage: model.profileImage,
+        ownerCoverImage: model.coverImage,
         title: item.title,
         type: item.type,
         thumbnail: item.thumbnail,
@@ -69,7 +77,11 @@ export function getPreviewCardsForModelByType(
     .filter((item) => item.type === type)
     .map((item, index) => ({
       id: `${model.id}-${type}-showcase-${index}`,
+      ownerId: model.id,
       owner: model.name,
+      ownerHandle: model.handle,
+      ownerProfileImage: model.profileImage,
+      ownerCoverImage: model.coverImage,
       title: item.title,
       type: item.type,
       thumbnail: item.thumbnail,

@@ -5,10 +5,36 @@
       "name": "Mel Breia",
       "handle": "@melbreia",
       "tagline": "Loira linda",
+      "hiddenOnHome": false,
       "accentFrom": "#dc2626",
       "accentTo": "#7e22ce",
       "profileImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20perfil%204.png",
       "coverImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20capa%204.png",
+      "fullContentVideos": [
+        {
+          "id": "full-content-d91b6167-f818-4a5c-882e-56f06d33a2a6",
+          "title": "Conteudo completo 1",
+          "routeToken": "12f0a488ba10",
+          "videoUrl": "/uploads/full-content/mel-breia/Mel%20Breia%20conteudo%20completo%203.mp4",
+          "views": 0,
+          "comments": []
+        },
+        {
+          "id": "full-content-d35c3c75-686c-400e-a92b-29825bee25db",
+          "title": "Conteudo completo 2",
+          "routeToken": "dc18ccc6f68e",
+          "videoUrl": "/uploads/full-content/mel-breia/Mel%20Breia%20conteudo%20completo%204.mp4",
+          "views": 7,
+          "comments": [
+            {
+              "id": "full-comment-5565e32f-5559-4094-acd4-bbbfac0e1bc9",
+              "name": "wellington",
+              "message": "teste",
+              "createdAt": "2026-04-01T00:51:31.615Z"
+            }
+          ]
+        }
+      ],
       "gallery": [
         {
           "id": "media-recovered-mel-video-2",
@@ -25,13 +51,6 @@
           "subtitle": "",
           "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2013.mov",
           "src": "/uploads/mel-breia/Mel%20Breia%20video%2013.mov"
-        },
-        {
-          "id": "media-recovered-mel-image-1",
-          "type": "image",
-          "title": "Previa 1",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2016.png"
         },
         {
           "id": "media-recovered-mel-image-2",
@@ -90,10 +109,12 @@
       "name": "Moises Godinho",
       "handle": "@moisesgodinho",
       "tagline": "Moises ama dar esse cuzao dele",
+      "hiddenOnHome": false,
       "accentFrom": "#dc2626",
       "accentTo": "#7e22ce",
       "profileImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20perfil%204.png",
       "coverImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20capa%204.png",
+      "fullContentVideos": [],
       "gallery": [
         {
           "id": "media-recovered-moises-video-1",
@@ -154,10 +175,12 @@
       "name": "Yan",
       "handle": "yangregory",
       "tagline": "",
+      "hiddenOnHome": false,
       "accentFrom": "#f43f5e",
       "accentTo": "#9333ea",
       "profileImage": "/uploads/yan/Yan%20foto%20de%20perfil%204.jpg",
       "coverImage": "/uploads/yan/Yan%20foto%20de%20capa%204.jpeg",
+      "fullContentVideos": [],
       "gallery": [
         {
           "id": "media-recovered-yan-video-1",
@@ -182,10 +205,12 @@
       "name": "Bruno Souza",
       "handle": "brunosouza",
       "tagline": "da o cu e chupa",
+      "hiddenOnHome": false,
       "accentFrom": "#ef4444",
       "accentTo": "#7c3aed",
       "profileImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20perfil%204.jpg",
       "coverImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20capa%204.jpeg",
+      "fullContentVideos": [],
       "gallery": []
     },
     {
@@ -193,10 +218,12 @@
       "name": "carlos eduardo",
       "handle": "carloseduardo",
       "tagline": "chuopa e chupa",
+      "hiddenOnHome": false,
       "accentFrom": "#ef4444",
       "accentTo": "#7c3aed",
       "profileImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20perfil%204.jpeg",
       "coverImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20capa%204.jpeg",
+      "fullContentVideos": [],
       "gallery": []
     }
   ],
@@ -206,6 +233,18 @@
       "title": "Print do grupo",
       "subtitle": "",
       "image": "/uploads/group-proofs/print%20grupo%201.jpg"
+    },
+    {
+      "id": "group-217dd21a-a761-4fb2-9098-45b0582452c1",
+      "title": "Print do grupo",
+      "subtitle": "",
+      "image": "/uploads/group-proofs/print%20grupo%202.png"
+    },
+    {
+      "id": "group-f04014a4-fae2-4995-8f3d-df76fc5a295e",
+      "title": "Print do grupo",
+      "subtitle": "",
+      "image": "/uploads/group-proofs/print%20grupo%203.jpeg"
     }
   ],
   "heroBackgrounds": {

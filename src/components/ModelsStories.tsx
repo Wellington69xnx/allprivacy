@@ -100,7 +100,7 @@ export function ModelsStories({
       ) : (
         <div className="relative mt-6">
           <div
-            className={`flex flex-wrap justify-start gap-x-2 gap-y-4 sm:gap-x-3 sm:gap-y-5 ${
+            className={`grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] justify-items-center gap-x-2 gap-y-4 sm:flex sm:flex-wrap sm:justify-start sm:gap-x-3 sm:gap-y-5 ${
               ghostCards.length > 0
                 ? 'max-h-[412px] overflow-hidden sm:max-h-[436px] md:max-h-[456px]'
                 : ''
@@ -116,7 +116,7 @@ export function ModelsStories({
                 viewport={{ once: true, amount: 0.5 }}
                 transition={{ duration: 0.35, delay: index * 0.05 }}
                 whileTap={{ scale: 0.96 }}
-                className="flex w-[72px] flex-col items-center text-center sm:w-[82px] md:w-[92px]"
+                className="flex w-full max-w-[76px] flex-col items-center text-center sm:w-[82px] sm:max-w-none md:w-[92px]"
               >
                 <span
                   className="mx-auto flex h-[64px] w-[64px] items-center justify-center rounded-full p-[3px] shadow-glow sm:h-[74px] sm:w-[74px] md:h-[84px] md:w-[84px]"
@@ -149,7 +149,7 @@ export function ModelsStories({
                 viewport={{ once: true, amount: 0.5 }}
                 transition={{ duration: 0.35, delay: Math.min(0.45, index * 0.02) }}
                 whileTap={{ scale: 0.96 }}
-                className={`relative flex w-[72px] flex-col items-center text-center opacity-75 blur-[1.8px] saturate-75 sm:w-[82px] md:w-[92px] ${
+                className={`relative flex w-full max-w-[76px] flex-col items-center text-center opacity-75 blur-[1.8px] saturate-75 sm:w-[82px] sm:max-w-none md:w-[92px] ${
                   index >= Math.max(0, ghostCards.length - 4)
                     ? 'opacity-45'
                     : index >= Math.max(0, ghostCards.length - 8)

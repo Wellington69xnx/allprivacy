@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion';
-import { useLayoutEffect, useRef, type WheelEventHandler } from 'react';
+import { useLayoutEffect, useRef, useState, type WheelEventHandler } from 'react';
 import type { PreviewCard } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { ChevronLeftIcon, ChevronRightIcon } from './icons';
+import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { SectionHeader } from './SectionHeader';
 
 interface MediaPreviewRailProps {
@@ -23,6 +24,9 @@ export function MediaPreviewRail({
   variant = 'wide',
 }: MediaPreviewRailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [selectedItem, setSelectedItem] = useState<PreviewCard | null>(null);
+  const usePortraitCards =
+    variant === 'portrait' || items.some((item) => item.type === 'video');
 
   useLayoutEffect(() => {
     const resetCarouselScroll = () => {
@@ -81,12 +85,12 @@ export function MediaPreviewRail({
   }, [items.length, variant]);
 
   const cardClassName =
-    variant === 'portrait'
-      ? 'relative self-start w-[50vw] max-w-[235px] shrink-0 snap-start overflow-hidden rounded-[26px] border border-white/10 bg-black md:w-[230px] lg:w-[250px]'
-      : 'relative self-start w-[84vw] max-w-[580px] shrink-0 snap-start overflow-hidden rounded-[28px] border border-white/10 bg-black md:w-[620px] lg:w-[700px]';
+    usePortraitCards
+      ? 'relative self-start w-[54vw] max-w-[250px] shrink-0 snap-start overflow-hidden rounded-[26px] border border-white/10 bg-black md:w-[268px] md:max-w-[268px] lg:w-[292px] lg:max-w-[292px]'
+      : 'relative self-start w-[88vw] max-w-[600px] shrink-0 snap-start overflow-hidden rounded-[28px] border border-white/10 bg-black md:w-[720px] md:max-w-[720px] lg:w-[820px] lg:max-w-[820px]';
 
   const aspectClassName =
-    variant === 'portrait'
+    usePortraitCards
       ? 'relative aspect-[9/16] h-full overflow-hidden rounded-[inherit] bg-black'
       : 'relative aspect-[4/3] h-full overflow-hidden rounded-[inherit] bg-black';
 
@@ -163,7 +167,19 @@ export function MediaPreviewRail({
             <div className="flex w-max items-start gap-4 px-1 md:gap-5">
               {items.map((item) => (
                 <article key={item.id} data-showcase-card className={cardClassName}>
-                  <div className={aspectClassName}>
+                  <div
+                    className={aspectClassName}
+                    onClick={() => setSelectedItem(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedItem(item);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Abrir visualizacao de ${item.title}`}
+                  >
                     <AutoplayMedia
                       type={item.type}
                       src={item.src}
@@ -180,17 +196,25 @@ export function MediaPreviewRail({
             </div>
           </div>
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-20 flex items-center justify-between px-2">
             <button
               type="button"
-              onClick={() => scrollByCard('left')}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                scrollByCard('left');
+              }}
               className="pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/85 backdrop-blur-md transition hover:bg-black/75 sm:h-10 sm:w-10 md:h-12 md:w-12"
             >
               <ChevronLeftIcon className="h-4 w-4 md:h-5 md:w-5" />
             </button>
             <button
               type="button"
-              onClick={() => scrollByCard('right')}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                scrollByCard('right');
+              }}
               className="pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/85 backdrop-blur-md transition hover:bg-black/75 sm:h-10 sm:w-10 md:h-12 md:w-12"
             >
               <ChevronRightIcon className="h-4 w-4 md:h-5 md:w-5" />
@@ -198,6 +222,8 @@ export function MediaPreviewRail({
           </div>
         </div>
       )}
+
+      <MediaPreviewDialog item={selectedItem} onClose={() => setSelectedItem(null)} />
     </motion.section>
   );
 }

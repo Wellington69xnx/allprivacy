@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { hasWarmVideo, primeKnownWarmVideos } from '../lib/mediaWarmCache';
 import type { ModelProfile } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { CloseIcon } from './icons';
@@ -61,6 +62,18 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
       window.clearTimeout(loadMoreTimeoutRef.current);
       loadMoreTimeoutRef.current = null;
     }
+  }, [model]);
+
+  useEffect(() => {
+    if (!model) {
+      return;
+    }
+
+    primeKnownWarmVideos(
+      model.gallery
+        .filter((item) => item.type === 'video')
+        .map((item) => item.src),
+    );
   }, [model]);
 
   useEffect(() => {
@@ -194,13 +207,22 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
                           key={item.id}
                           className="overflow-hidden rounded-[24px] bg-black"
                         >
-                          <div className="aspect-[4/5] bg-zinc-950">
+                          <div
+                            className={`bg-zinc-950 ${
+                              item.type === 'video' ? 'aspect-[9/16]' : 'aspect-[4/5]'
+                            }`}
+                          >
                             <AutoplayMedia
                               type={item.type}
                               src={item.src}
                               poster={item.thumbnail}
                               alt={item.title}
                               className="h-full w-full"
+                              preloadStrategy={
+                                item.type === 'video' && hasWarmVideo(item.src)
+                                  ? 'auto'
+                                  : 'metadata'
+                              }
                               showVolumeToggle
                               showLoadingSkeleton
                             />

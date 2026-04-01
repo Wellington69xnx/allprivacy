@@ -89,6 +89,17 @@ export function PlayIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PauseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M8.2 6.8A1.2 1.2 0 0 1 9.4 5.6h.2a1.2 1.2 0 0 1 1.2 1.2v10.4a1.2 1.2 0 0 1-1.2 1.2h-.2a1.2 1.2 0 0 1-1.2-1.2V6.8Zm5 0a1.2 1.2 0 0 1 1.2-1.2h.2a1.2 1.2 0 0 1 1.2 1.2v10.4a1.2 1.2 0 0 1-1.2 1.2h-.2a1.2 1.2 0 0 1-1.2-1.2V6.8Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export function CloseIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -138,6 +149,27 @@ export function VolumeOffIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ExpandIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M8 4.8H4.8V8M16 4.8h3.2V8M8 19.2H4.8V16M19.2 16v3.2H16"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 9 4.8 4.8M15 9l4.2-4.2M9 15l-4.2 4.2M15 15l4.2 4.2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function BookmarkIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -152,6 +184,24 @@ export function BookmarkIcon(props: SVGProps<SVGSVGElement>) {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function VerifiedBadgeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M12 2.8 14.3 4l2.6-.2 1.4 2.2 2.2 1.4-.2 2.6L21.2 12l-1.1 2.3.2 2.6-2.2 1.4-1.4 2.2-2.6-.2L12 21.2l-2.3-1.1-2.6.2-1.4-2.2-2.2-1.4.2-2.6L2.8 12 4 9.7l-.2-2.6L6 5.7l1.4-2.2 2.6.2L12 2.8Z"
+        fill="currentColor"
+      />
+      <path
+        d="m8.8 12.2 2.1 2.1 4.3-4.7"
+        stroke="white"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

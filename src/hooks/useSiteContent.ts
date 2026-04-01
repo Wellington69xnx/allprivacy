@@ -27,6 +27,7 @@ interface ModelInput {
   tagline: string;
   profileImage: string;
   coverImage: string;
+  hiddenOnHome?: boolean;
   accentFrom?: string;
   accentTo?: string;
 }
@@ -38,6 +39,13 @@ interface MediaInput {
   subtitle: string;
   thumbnail: string;
   src?: string;
+}
+
+interface FullContentVideoInput {
+  modelId: string;
+  videoUrl: string;
+  routeToken?: string;
+  title?: string;
 }
 
 interface HeroBackgroundInput {
@@ -81,6 +89,14 @@ function createId(prefix: string) {
   }
 
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createRouteToken() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 12).toLowerCase();
+  }
+
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.slice(0, 12);
 }
 
 function cloneDefaultContent(): SiteContent {
@@ -370,6 +386,7 @@ export function useSiteContent() {
         name: input.name.trim(),
         handle: input.handle.trim(),
         tagline: input.tagline.trim(),
+        hiddenOnHome: Boolean(input.hiddenOnHome),
         profileImage: input.profileImage.trim(),
         coverImage: input.coverImage.trim(),
         accentFrom: input.accentFrom?.trim() || accentFrom,
@@ -403,10 +420,30 @@ export function useSiteContent() {
             name: input.name.trim(),
             handle: input.handle.trim(),
             tagline: input.tagline.trim(),
+            hiddenOnHome: Boolean(input.hiddenOnHome ?? model.hiddenOnHome),
             profileImage: input.profileImage.trim(),
             coverImage: input.coverImage.trim(),
             accentFrom: input.accentFrom?.trim() || model.accentFrom,
             accentTo: input.accentTo?.trim() || model.accentTo,
+          };
+        }),
+      }));
+    },
+    [updateSiteContent],
+  );
+
+  const toggleModelHomeVisibility = useCallback(
+    async (modelId: string) => {
+      await updateSiteContent((current) => ({
+        ...current,
+        models: current.models.map((model) => {
+          if (model.id !== modelId) {
+            return model;
+          }
+
+          return {
+            ...model,
+            hiddenOnHome: !Boolean(model.hiddenOnHome),
           };
         }),
       }));
@@ -481,6 +518,63 @@ export function useSiteContent() {
           return {
             ...model,
             gallery: model.gallery.filter((item) => item.id !== mediaId),
+          };
+        }),
+      }));
+    },
+    [updateSiteContent],
+  );
+
+  const addModelFullContentVideo = useCallback(
+    async (input: FullContentVideoInput) => {
+      await updateSiteContent((current) => ({
+        ...current,
+        models: current.models.map((model) => {
+          if (model.id !== input.modelId) {
+            return model;
+          }
+
+          const nextVideoUrl = input.videoUrl.trim();
+
+          if (!nextVideoUrl) {
+            return model;
+          }
+
+          const nextIndex = (model.fullContentVideos?.length || 0) + 1;
+
+          return {
+            ...model,
+            fullContentVideos: [
+              ...(model.fullContentVideos || []),
+              {
+                id: createId('full-content'),
+                title: input.title?.trim() || `Conteudo completo ${nextIndex}`,
+                routeToken: input.routeToken?.trim() || createRouteToken(),
+                videoUrl: nextVideoUrl,
+                views: 0,
+              },
+            ],
+          };
+        }),
+      }));
+    },
+    [updateSiteContent],
+  );
+
+  const removeModelFullContentVideo = useCallback(
+    async (modelId: string, contentId: string) => {
+      await updateSiteContent((current) => ({
+        ...current,
+        models: current.models.map((model) => {
+          if (model.id !== modelId) {
+            return model;
+          }
+
+          return {
+            ...model,
+            fullContentVideos: (model.fullContentVideos || []).filter(
+              (item) => item.id !== contentId,
+            ),
           };
         }),
       }));
@@ -632,9 +726,12 @@ export function useSiteContent() {
     addModel,
     updateModel,
     removeModel,
+    toggleModelHomeVisibility,
     addMediaToModel,
     addMediaBatchToModel,
     removeMediaFromModel,
+    addModelFullContentVideo,
+    removeModelFullContentVideo,
     addGroupProofItem,
     removeGroupProofItem,
     addHeroBackground,
