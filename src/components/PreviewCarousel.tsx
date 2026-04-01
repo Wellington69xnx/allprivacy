@@ -344,7 +344,7 @@ export function PreviewCarousel({
                     <h3 className={ctaTitleClassName}>Entrar no Grupo</h3>
                     <p className={ctaDescriptionClassName}>
                       {
-                        'Entre no grupo VIP e tenha acesso a conte\u00fados exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, Close Friends e Telegram VIP.'
+                        'Entre no grupo VIP e tenha acesso a conte\u00fados exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, CloseFans e Telegram VIP.'
                       }
                       <br />
                       <br />

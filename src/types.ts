@@ -31,6 +31,7 @@ export interface ModelFullContentComment {
   name: string;
   message: string;
   createdAt: string;
+  likes: number;
 }
 
 export interface ModelProfile {

@@ -80,7 +80,7 @@ const paymentPlans = [
 ];
 const adminCookieName = 'allprivacy_admin';
 const adminUsername = 'well69xnx';
-const adminPassword = 'Download';
+const adminPassword = '1234';
 const authSecret = process.env.ADMIN_AUTH_SECRET || 'allprivacy-admin-local-secret';
 const sessionMaxAgeSeconds = 60 * 60 * 12;
 const uploadPlanKey = Symbol('allprivacy-upload-plan');
@@ -808,9 +808,13 @@ function normalizeModelFullContentComment(item, index = 0) {
 
   return {
     id: toText(item.id) || createId(`full-comment-${index + 1}`),
-    name: name.slice(0, 60),
+    name: name.slice(0, 20),
     message: message.slice(0, 200),
     createdAt,
+    likes: Math.max(0, Number(item.likes || 0) || 0),
+    likedBy: Array.isArray(item.likedBy)
+      ? item.likedBy.map((entry) => toText(entry)).filter(Boolean)
+      : [],
   };
 }
 
@@ -1137,7 +1141,7 @@ async function incrementModelFullContentView(routeToken) {
 
 async function addModelFullContentComment(routeToken, name, message) {
   const normalizedRouteToken = toText(routeToken).toLowerCase();
-  const normalizedName = toText(name).trim().slice(0, 60);
+  const normalizedName = toText(name).trim().slice(0, 20);
   const normalizedMessage = toText(message).trim().slice(0, 200);
 
   if (!normalizedRouteToken || !normalizedName || !normalizedMessage) {
@@ -1149,6 +1153,8 @@ async function addModelFullContentComment(routeToken, name, message) {
     name: normalizedName,
     message: normalizedMessage,
     createdAt: new Date().toISOString(),
+    likes: 0,
+    likedBy: [],
   };
 
   const siteContent = await readSiteContent();
@@ -1182,6 +1188,86 @@ async function addModelFullContentComment(routeToken, name, message) {
   }
 
   await writeSiteContent(nextContent);
+  return matchedComment;
+}
+
+function createCommentLikeIdentity(req) {
+  const rawIdentity = getRequestIpAddress(req);
+  return createHmac('sha256', authSecret).update(rawIdentity).digest('hex').slice(0, 32);
+}
+
+async function addLikeToModelFullContentComment(routeToken, commentId, likeIdentity) {
+  const normalizedRouteToken = toText(routeToken).toLowerCase();
+  const normalizedCommentId = toText(commentId);
+  const normalizedLikeIdentity = toText(likeIdentity);
+
+  if (!normalizedRouteToken || !normalizedCommentId || !normalizedLikeIdentity) {
+    return null;
+  }
+
+  const siteContent = await readSiteContent();
+  let matchedComment = null;
+
+  const nextContent = {
+    ...siteContent,
+    models: siteContent.models.map((model) => {
+      const nextFullContentVideos = (model.fullContentVideos || []).map((item) => {
+        if (toText(item.routeToken).toLowerCase() !== normalizedRouteToken) {
+          return item;
+        }
+
+        return {
+          ...item,
+          comments: (item.comments || []).map((comment) => {
+            if (toText(comment.id) !== normalizedCommentId) {
+              return comment;
+            }
+
+            const likedBy = Array.isArray(comment.likedBy) ? comment.likedBy : [];
+
+            if (likedBy.includes(normalizedLikeIdentity)) {
+              const nextComment = {
+                ...comment,
+                likes: Math.max(0, (Number(comment.likes || 0) || 0) - 1),
+                likedBy: likedBy.filter((entry) => entry !== normalizedLikeIdentity),
+              };
+
+              matchedComment = {
+                ...nextComment,
+                liked: false,
+              };
+              return nextComment;
+            }
+
+            const nextComment = {
+              ...comment,
+              likes: Math.max(0, Number(comment.likes || 0) || 0) + 1,
+              likedBy: [...likedBy, normalizedLikeIdentity],
+            };
+
+            matchedComment = {
+              ...nextComment,
+              liked: true,
+            };
+
+            return nextComment;
+          }),
+        };
+      });
+
+      return {
+        ...model,
+        fullContentVideos: nextFullContentVideos,
+      };
+    }),
+  };
+
+  if (!matchedComment) {
+    return null;
+  }
+
+  await writeSiteContent(nextContent);
+
   return matchedComment;
 }
 
@@ -1746,6 +1832,39 @@ app.post('/api/full-content/comment', async (req, res) => {
   }
 
   res.json({ ok: true, comment });
+});
+
+app.post('/api/full-content/comment-like', async (req, res) => {
+  const routeToken = toText(req.body?.routeToken);
+  const commentId = toText(req.body?.commentId);
+
+  if (!routeToken || !commentId) {
+    res.status(400).json({ message: 'routeToken e commentId sao obrigatorios.' });
+    return;
+  }
+
+  const result = await addLikeToModelFullContentComment(
+    routeToken,
+    commentId,
+    createCommentLikeIdentity(req),
+  );
+
+  if (!result) {
+    res.status(404).json({ message: 'Comentario nao encontrado.' });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    liked: Boolean(result.liked),
+    comment: {
+      id: result.id,
+      name: result.name,
+      message: result.message,
+      createdAt: result.createdAt,
+      likes: Math.max(0, Number(result.likes || 0) || 0),
+    },
+  });
 });
 
 app.post('/api/payments/syncpay/webhook', async (req, res) => {

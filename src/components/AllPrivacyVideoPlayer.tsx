@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ExpandIcon, PauseIcon, PlayIcon, VolumeOffIcon, VolumeOnIcon } from './icons';
 
 interface AllPrivacyVideoPlayerProps {
@@ -7,6 +8,15 @@ interface AllPrivacyVideoPlayerProps {
   brandLabel?: string;
   className?: string;
 }
+
+type FullscreenCapableElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenCapableVideoElement = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
 
 function formatTime(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) {
@@ -35,12 +45,14 @@ export function AllPrivacyVideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hideControlsTimeoutRef = useRef<number | null>(null);
+  const resumeStateRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
 
   useEffect(() => {
@@ -49,7 +61,9 @@ export function AllPrivacyVideoPlayer({
     setDuration(0);
     setIsReady(false);
     setIsMuted(true);
+    setIsPseudoFullscreen(false);
     setControlsVisible(true);
+    resumeStateRef.current = null;
   }, [src]);
 
   useEffect(() => {
@@ -79,6 +93,19 @@ export function AllPrivacyVideoPlayer({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPseudoFullscreen || typeof document === 'undefined') {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPseudoFullscreen]);
 
   const progressPercent = useMemo(() => {
     if (!duration || !Number.isFinite(duration)) {
@@ -163,17 +190,84 @@ export function AllPrivacyVideoPlayer({
     revealControls();
   };
 
+  const syncResumeStateIntoVideo = (video: HTMLVideoElement | null) => {
+    if (!video || !resumeStateRef.current) {
+      return;
+    }
+
+    const { time, shouldPlay } = resumeStateRef.current;
+
+    try {
+      if (Number.isFinite(time)) {
+        video.currentTime = Math.max(0, time);
+        setCurrentTime(Math.max(0, time));
+      }
+    } catch {
+      // Ignore seek issues on initial mount.
+    }
+
+    if (shouldPlay) {
+      void video.play().then(() => {
+        setIsPlaying(true);
+      }).catch(() => {
+        setIsPlaying(false);
+      });
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+
+    resumeStateRef.current = null;
+  };
+
+  const rememberPlaybackState = () => {
+    const currentVideo = videoRef.current;
+    resumeStateRef.current = {
+      time: currentVideo?.currentTime ?? currentTime,
+      shouldPlay: currentVideo ? !currentVideo.paused : isPlaying,
+    };
+  };
+
   const handleFullscreenToggle = async () => {
-    const container = containerRef.current;
-    if (!container) {
+    const container = containerRef.current as FullscreenCapableElement | null;
+    const video = videoRef.current as FullscreenCapableVideoElement | null;
+
+    if (!container && !video) {
       return;
     }
 
     try {
-      if (document.fullscreenElement === container) {
+      const prefersPseudoFullscreen =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(max-width: 767px)').matches;
+
+      if (prefersPseudoFullscreen) {
+        rememberPlaybackState();
+        setIsPseudoFullscreen((current) => !current);
+        revealControls();
+        return;
+      }
+
+      if (isPseudoFullscreen) {
+        setIsPseudoFullscreen(false);
+        revealControls();
+        return;
+      }
+
+      if (document.fullscreenElement && document.fullscreenElement === container) {
         await document.exitFullscreen();
-      } else {
+      } else if (container?.requestFullscreen) {
         await container.requestFullscreen();
+      } else if (container?.webkitRequestFullscreen) {
+        await container.webkitRequestFullscreen();
+      } else if (video?.requestFullscreen) {
+        await video.requestFullscreen();
+      } else if (video?.webkitRequestFullscreen) {
+        await video.webkitRequestFullscreen();
+      } else if (video?.webkitEnterFullscreen) {
+        video.webkitEnterFullscreen();
+      } else {
+        return;
       }
       revealControls();
     } catch {
@@ -182,11 +276,10 @@ export function AllPrivacyVideoPlayer({
   };
 
   const overlayVisible = controlsVisible || !isPlaying;
-
-  return (
+  const playerShell = (shellClassName: string) => (
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden rounded-[inherit] ${isFullscreen ? 'bg-black' : ''} ${className}`}
+      className={`relative h-full w-full overflow-hidden ${shellClassName} ${isFullscreen ? 'bg-black' : ''} ${className}`}
       onPointerMove={revealControls}
       onTouchStart={revealControls}
       onMouseEnter={revealControls}
@@ -209,6 +302,7 @@ export function AllPrivacyVideoPlayer({
           setDuration(videoRef.current.duration || 0);
           setCurrentTime(videoRef.current.currentTime || 0);
           setIsReady(true);
+          syncResumeStateIntoVideo(videoRef.current);
         }}
         onTimeUpdate={() => {
           if (!videoRef.current) {
@@ -317,7 +411,7 @@ export function AllPrivacyVideoPlayer({
               type="button"
               onClick={handleFullscreenToggle}
               className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] px-2.5 text-white transition hover:bg-white/[0.1] sm:h-11 sm:min-w-11 sm:px-4"
-              aria-label={isFullscreen ? 'Sair da tela cheia' : 'Abrir em tela cheia'}
+              aria-label={isFullscreen || isPseudoFullscreen ? 'Sair da tela cheia' : 'Abrir em tela cheia'}
             >
               <ExpandIcon className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
@@ -326,4 +420,15 @@ export function AllPrivacyVideoPlayer({
       </div>
     </div>
   );
+
+  if (isPseudoFullscreen && typeof document !== 'undefined') {
+    return createPortal(
+      <div className="fixed inset-0 z-[95] bg-black">
+        {playerShell('h-full w-full rounded-none bg-black')}
+      </div>,
+      document.body,
+    );
+  }
+
+  return playerShell('rounded-[inherit]');
 }

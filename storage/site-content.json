@@ -24,13 +24,17 @@
           "title": "Conteudo completo 2",
           "routeToken": "dc18ccc6f68e",
           "videoUrl": "/uploads/full-content/mel-breia/Mel%20Breia%20conteudo%20completo%204.mp4",
-          "views": 7,
+          "views": 11,
           "comments": [
             {
               "id": "full-comment-5565e32f-5559-4094-acd4-bbbfac0e1bc9",
               "name": "wellington",
               "message": "teste",
-              "createdAt": "2026-04-01T00:51:31.615Z"
+              "createdAt": "2026-04-01T00:51:31.615Z",
+              "likes": 1,
+              "likedBy": [
+                "b01320cd7301b72ec7e601f3ef78d123"
+              ]
             }
           ]
         }
@@ -101,6 +105,14 @@
           "subtitle": "",
           "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2018.mp4",
           "src": "/uploads/mel-breia/Mel%20Breia%20video%2018.mp4"
+        },
+        {
+          "id": "media-e7063c5d-5886-48a7-bd5c-c3829f020e4f",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2019.mp4",
+          "src": "/uploads/mel-breia/Mel%20Breia%20video%2019.mp4"
         }
       ]
     },

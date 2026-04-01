@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { getAdminCommentsPath, getHomePath, getModelVideoPath } from '../lib/modelRoute';
 import type {
   HeroBackgroundTarget,
@@ -12,6 +13,7 @@ import type {
   UploadAssetResult,
 } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
+import { CloseIcon } from './icons';
 
 const CACHE_WARM_STATUS_STORAGE_KEY = 'allprivacy-admin-telegram-cache-status-v1';
 const CACHE_WARM_FEEDBACK_STORAGE_KEY = 'allprivacy-admin-telegram-cache-feedback-v1';
@@ -130,6 +132,12 @@ interface MediaFileState {
   assets: File[];
 }
 
+interface InlineMediaDraftState {
+  title: string;
+  subtitle: string;
+  assets: File[];
+}
+
 interface TaskProgressState {
   taskId: string;
   label: string;
@@ -173,6 +181,14 @@ const emptyMediaFiles: MediaFileState = {
   assets: [],
 };
 
+function createEmptyInlineMediaDraft(): InlineMediaDraftState {
+  return {
+    title: '',
+    subtitle: '',
+    assets: [],
+  };
+}
+
 function createClearCaptchaChallenge() {
   const left = Math.floor(Math.random() * 8) + 2;
   const right = Math.floor(Math.random() * 8) + 2;
@@ -202,10 +218,6 @@ function ghostButtonClassName() {
 
 function dangerGhostButtonClassName() {
   return 'inline-flex min-h-11 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-100 transition hover:bg-red-500/16 disabled:cursor-not-allowed disabled:opacity-60';
-}
-
-function sidebarCardClassName() {
-  return 'rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl';
 }
 
 function previewFrameClassName(shape: PreviewShape) {
@@ -543,7 +555,7 @@ function AdminSection({
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   countLabel?: string;
   isOpen: boolean;
   onToggle: () => void;
@@ -572,7 +584,7 @@ function AdminSection({
               </span>
             ) : null}
           </div>
-          <p className="mt-2 text-sm leading-6 text-zinc-300">{subtitle}</p>
+          {subtitle ? <p className="mt-2 text-sm leading-6 text-zinc-300">{subtitle}</p> : null}
         </div>
 
         <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/65">
@@ -584,6 +596,88 @@ function AdminSection({
         <div className="border-t border-white/10 px-4 py-4 sm:px-5 xl:px-6 xl:py-5">{children}</div>
       ) : null}
     </section>
+  );
+}
+
+function AdminMobileDialog({
+  isOpen,
+  title,
+  onClose,
+  children,
+}: {
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md xl:hidden"
+      onClick={onClose}
+    >
+      <div className="flex min-h-full items-end justify-center overflow-hidden px-0">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className="relative h-[min(92dvh,900px)] w-screen max-w-full overflow-hidden rounded-t-[32px] border border-white/10 bg-[#09090c]/95 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white backdrop-blur-md"
+          >
+            <CloseIcon className="h-5 w-5" />
+          </button>
+
+          <div className="hide-scrollbar h-full overflow-y-auto">
+            <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top,rgba(127,29,29,0.18),transparent_34%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.08),transparent_42%)] px-5 pb-7 pt-16">
+              <h2 className="max-w-3xl font-display text-2xl font-semibold tracking-tight text-white">
+                {title}
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-zinc-300">
+                Envie novas imagens e videos sem sair da gestao dessa modelo.
+              </p>
+            </div>
+
+            <div className="px-5 py-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+              {children}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -893,15 +987,24 @@ export function AdminPanel({
   const [clearCaptchaInput, setClearCaptchaInput] = useState('');
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
+  const [selectedDesktopModelId, setSelectedDesktopModelId] = useState<string | null>(null);
+  const [isDesktopModelRailCollapsed, setIsDesktopModelRailCollapsed] = useState(false);
   const [editingModelForm, setEditingModelForm] = useState(emptyModelForm);
   const [editingModelFiles, setEditingModelFiles] = useState(emptyModelFiles);
   const [fullContentFiles, setFullContentFiles] = useState<Record<string, File | null>>({});
+  const [inlineModelMediaDrafts, setInlineModelMediaDrafts] = useState<
+    Record<string, InlineMediaDraftState>
+  >({});
+  const [mobileInlineMediaModalModelId, setMobileInlineMediaModalModelId] = useState<string | null>(
+    null,
+  );
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({
     model: false,
     media: false,
     backgrounds: false,
     proofs: false,
-    models: true,
+    models: false,
   });
 
   useEffect(() => {
@@ -922,6 +1025,23 @@ export function AdminPanel({
       }));
     }
   }, [mediaForm.modelId, siteContent.models]);
+
+  useEffect(() => {
+    if (siteContent.models.length === 0) {
+      setSelectedDesktopModelId(null);
+      return;
+    }
+
+    if (!selectedDesktopModelId) {
+      return;
+    }
+
+    if (siteContent.models.some((model) => model.id === selectedDesktopModelId)) {
+      return;
+    }
+
+    setSelectedDesktopModelId(null);
+  }, [selectedDesktopModelId, siteContent.models]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1088,6 +1208,7 @@ export function AdminPanel({
 
   const startEditingModel = (model: ModelProfile) => {
     setExpandedModelId(model.id);
+    setSelectedDesktopModelId(model.id);
     setEditingModelId(model.id);
     setEditingModelFiles(emptyModelFiles);
     setEditingModelForm({
@@ -1104,6 +1225,31 @@ export function AdminPanel({
     setEditingModelId(null);
     setEditingModelFiles(emptyModelFiles);
     setEditingModelForm(emptyModelForm);
+  };
+
+  const getInlineMediaDraft = (modelId: string) =>
+    inlineModelMediaDrafts[modelId] ?? createEmptyInlineMediaDraft();
+
+  const updateInlineMediaDraft = (
+    modelId: string,
+    updater: (draft: InlineMediaDraftState) => InlineMediaDraftState,
+  ) => {
+    setInlineModelMediaDrafts((current) => ({
+      ...current,
+      [modelId]: updater(current[modelId] ?? createEmptyInlineMediaDraft()),
+    }));
+  };
+
+  const clearInlineMediaDraft = (modelId: string) => {
+    setInlineModelMediaDrafts((current) => {
+      if (!(modelId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[modelId];
+      return next;
+    });
   };
 
   const handleModelSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1244,70 +1390,73 @@ export function AdminPanel({
     }
   };
 
-  const handleMediaSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
+  const handleSaveMediaBatchForModel = async ({
+    model,
+    files,
+    title,
+    subtitle,
+    taskId,
+    successMessage,
+    onSuccess,
+  }: {
+    model: ModelProfile;
+    files: File[];
+    title: string;
+    subtitle: string;
+    taskId: string;
+    successMessage: string;
+    onSuccess?: () => void;
+  }) => {
     if (activeTask) {
       return;
     }
 
-    setActiveTask('media');
-    updateTaskProgress('media', 'Preparando conteudo', 6);
+    if (files.length === 0) {
+      setFeedback('Selecione uma ou mais imagens e/ou videos para enviar.');
+      return;
+    }
+
+    setActiveTask(taskId);
+    updateTaskProgress(taskId, 'Preparando conteudo', 6);
     setFeedback(null);
 
     try {
-      const selectedModel = siteContent.models.find((model) => model.id === mediaForm.modelId);
-
-      if (!mediaForm.modelId || !selectedModel) {
-        setFeedback('Selecione uma modelo antes de salvar o conteudo.');
-        return;
-      }
-
-      const modelName = selectedModel.name;
-      if (mediaFiles.assets.length === 0) {
-        setFeedback('Selecione uma ou mais imagens e/ou videos para enviar.');
-        return;
-      }
-
       const assetUploads = await uploadAssetsSequentially({
-        files: mediaFiles.assets,
-        taskId: 'media',
+        files,
+        taskId,
         label: 'Enviando conteudo',
         range: [16, 86],
         optionsBuilder: (file) => ({
           bucket: 'model-media',
-          modelName,
+          modelName: model.name,
           mediaType: file.type.startsWith('video/') ? 'video' : 'image',
         }),
       });
 
+      const trimmedTitle = title.trim();
       const batchItems = assetUploads.map((assetUrl, index) => {
-        const file = mediaFiles.assets[index];
+        const file = files[index];
         const mediaType = file?.type.startsWith('video/') ? 'video' : 'image';
 
         return {
-          modelId: mediaForm.modelId,
+          modelId: model.id,
           type: mediaType as 'image' | 'video',
           title:
-            mediaForm.title.trim() && assetUploads.length > 1
-              ? `${mediaForm.title.trim()} ${index + 1}`
-              : mediaForm.title.trim() || `Previa ${index + 1}`,
-          subtitle: mediaForm.subtitle,
+            trimmedTitle && assetUploads.length > 1
+              ? `${trimmedTitle} ${index + 1}`
+              : trimmedTitle || `Previa ${index + 1}`,
+          subtitle,
           thumbnail: assetUrl,
           src: mediaType === 'video' ? assetUrl : undefined,
         };
       });
 
-      updateTaskProgress('media', 'Gravando conteudo', 92);
-      await addMediaBatchToModel(mediaForm.modelId, batchItems);
+      updateTaskProgress(taskId, 'Gravando conteudo', 92);
+      await addMediaBatchToModel(model.id, batchItems);
 
-      updateTaskProgress('media', 'Conteudo salvo', 100);
-      setMediaForm((current) => ({
-        ...emptyMediaForm,
-        modelId: current.modelId,
-      }));
-      setMediaFiles(emptyMediaFiles);
-      setFeedback('Conteudo salvo e ja disponivel na home e no modal da modelo.');
+      updateTaskProgress(taskId, 'Conteudo salvo', 100);
+      onSuccess?.();
+      setFeedback(successMessage);
       setOpenSections((current) => ({ ...current, models: true }));
     } catch {
       setFeedback('Nao foi possivel salvar o conteudo agora.');
@@ -1315,6 +1464,33 @@ export function AdminPanel({
       setActiveTask(null);
       clearTaskProgress();
     }
+  };
+
+  const handleMediaSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const selectedModel = siteContent.models.find((model) => model.id === mediaForm.modelId);
+
+    if (!mediaForm.modelId || !selectedModel) {
+      setFeedback('Selecione uma modelo antes de salvar o conteudo.');
+      return;
+    }
+
+    await handleSaveMediaBatchForModel({
+      model: selectedModel,
+      files: mediaFiles.assets,
+      title: mediaForm.title,
+      subtitle: mediaForm.subtitle,
+      taskId: 'media',
+      successMessage: 'Conteudo salvo e ja disponivel na home e no modal da modelo.',
+      onSuccess: () => {
+        setMediaForm((current) => ({
+          ...emptyMediaForm,
+          modelId: current.modelId,
+        }));
+        setMediaFiles(emptyMediaFiles);
+      },
+    });
   };
 
   const handleSaveFullContentVideo = async (model: ModelProfile) => {
@@ -1507,9 +1683,12 @@ export function AdminPanel({
       setHeroBackgroundForm(emptyHeroBackgroundForm);
       setModelFiles(emptyModelFiles);
       setMediaFiles(emptyMediaFiles);
+      setInlineModelMediaDrafts({});
       setGroupProofFile(null);
       setHeroBackgroundFile(null);
       setExpandedModelId(null);
+      setSelectedDesktopModelId(null);
+      setMobileInlineMediaModalModelId(null);
       stopEditingModel();
       resetClearConfirmation();
       updateTaskProgress('clear', 'Conteudo limpo', 100);
@@ -1686,6 +1865,16 @@ export function AdminPanel({
         setExpandedModelId(null);
       }
 
+      if (selectedDesktopModelId === modelId) {
+        setSelectedDesktopModelId(null);
+      }
+
+      if (mobileInlineMediaModalModelId === modelId) {
+        setMobileInlineMediaModalModelId(null);
+      }
+
+      clearInlineMediaDraft(modelId);
+
       setFeedback('Modelo removida do site.');
     } catch {
       setFeedback('Nao foi possivel remover a modelo agora.');
@@ -1815,10 +2004,615 @@ export function AdminPanel({
     0,
   );
   const hiddenModelsCount = siteContent.models.filter((model) => model.hiddenOnHome).length;
+  const normalizedModelSearchQuery = modelSearchQuery.trim().toLowerCase();
+  const filteredModels = normalizedModelSearchQuery
+    ? siteContent.models.filter((model) =>
+        [model.name, model.handle, model.tagline]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(normalizedModelSearchQuery)),
+      )
+    : siteContent.models;
+  const selectedDesktopModel =
+    siteContent.models.find((model) => model.id === selectedDesktopModelId) ?? null;
+  const isDesktopModelFocused = Boolean(selectedDesktopModel);
+  const desktopShellClassName = isDesktopModelRailCollapsed
+    ? 'xl:grid xl:grid-cols-[92px,minmax(0,1fr)] xl:gap-5'
+    : 'xl:grid xl:grid-cols-[320px,minmax(0,1fr)] xl:gap-5';
+
+  const renderInlineMediaEditorContent = (model: ModelProfile) => {
+    const inlineMediaDraft = getInlineMediaDraft(model.id);
+    const inlineMediaTaskId = `inline-media-${model.id}`;
+    const fullContentItems = model.fullContentVideos || [];
+
+    return (
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr),260px] xl:items-start">
+        <div className="grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              value={inlineMediaDraft.title}
+              onChange={(event) =>
+                updateInlineMediaDraft(model.id, (current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+              className={fieldClassName()}
+              placeholder="Titulo curto opcional"
+              disabled={Boolean(activeTask)}
+            />
+            <input
+              value={inlineMediaDraft.subtitle}
+              onChange={(event) =>
+                updateInlineMediaDraft(model.id, (current) => ({
+                  ...current,
+                  subtitle: event.target.value,
+                }))
+              }
+              className={fieldClassName()}
+              placeholder="Legenda opcional"
+              disabled={Boolean(activeTask)}
+            />
+          </div>
+
+          <MultiFileUploadField
+            label="Arquivos de previas"
+            accept="image/*,video/*"
+            files={inlineMediaDraft.assets}
+            onFilesChange={(files) =>
+              updateInlineMediaDraft(model.id, (current) => ({
+                ...current,
+                assets: files,
+              }))
+            }
+            helper="Selecione imagens e videos juntos. O conteudo entra direto nessa modelo."
+            disabled={Boolean(activeTask)}
+          />
+        </div>
+
+        <div className="grid gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-4 xl:self-start">
+          <div className="grid gap-2 text-sm text-white/70">
+            <div className="flex items-center justify-between gap-3">
+              <span>Arquivos prontos</span>
+              <strong className="text-white">{inlineMediaDraft.assets.length}</strong>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>Videos exclusivos</span>
+              <strong className="text-white">{fullContentItems.length}</strong>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>Na home</span>
+              <strong className="text-white">{model.hiddenOnHome ? 'Oculta' : 'Visivel'}</strong>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              void handleSaveMediaBatchForModel({
+                model,
+                files: inlineMediaDraft.assets,
+                title: inlineMediaDraft.title,
+                subtitle: inlineMediaDraft.subtitle,
+                taskId: inlineMediaTaskId,
+                successMessage: 'Previas salvas e ja disponiveis na home e no modal da modelo.',
+                onSuccess: () => {
+                  clearInlineMediaDraft(model.id);
+                  setMobileInlineMediaModalModelId((current) =>
+                    current === model.id ? null : current,
+                  );
+                },
+              })
+            }
+            disabled={Boolean(activeTask)}
+            className={buttonClassName()}
+          >
+            {getSubmitLabel(
+              inlineMediaTaskId,
+              'Adicionar previas nessa modelo',
+              'Salvando previas...',
+            )}
+          </button>
+
+          {getTaskProgress(inlineMediaTaskId) ? (
+            <TaskProgressBar progress={getTaskProgress(inlineMediaTaskId)!} />
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderModelManagementBody = (model: ModelProfile) => {
+    const isEditing = editingModelId === model.id;
+    const currentFullContentFile = fullContentFiles[model.id] ?? null;
+    const fullContentTaskId = `full-content-${model.id}`;
+    const fullContentItems = model.fullContentVideos || [];
+
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,420px),1fr] xl:items-start">
+          <div className="w-full max-w-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-black">
+            <div className="aspect-[16/10]">
+              <img
+                src={model.coverImage}
+                alt={model.name}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            </div>
+          </div>
+
+          <div className="min-w-0 self-start">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleToggleModelHomeVisibility(model)}
+                disabled={Boolean(activeTask)}
+                className={ghostButtonClassName()}
+              >
+                {model.hiddenOnHome ? 'Mostrar na home' : 'Ocultar da home'}
+              </button>
+              <button
+                type="button"
+                onClick={() => (isEditing ? stopEditingModel() : startEditingModel(model))}
+                className={ghostButtonClassName()}
+              >
+                {isEditing ? 'Cancelar edicao' : 'Editar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRemoveModel(model.id)}
+                disabled={Boolean(activeTask)}
+                className={dangerGhostButtonClassName()}
+              >
+                Remover
+              </button>
+            </div>
+
+            {model.tagline ? (
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300">{model.tagline}</p>
+            ) : null}
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div className="grid gap-3 rounded-[24px] border border-white/10 bg-black/30 p-4 sm:grid-cols-2 sm:items-start">
+            <input
+              value={editingModelForm.name}
+              onChange={(event) =>
+                setEditingModelForm((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+              className={fieldClassName()}
+              placeholder="Nome da modelo"
+            />
+            <input
+              value={editingModelForm.handle}
+              onChange={(event) =>
+                setEditingModelForm((current) => ({
+                  ...current,
+                  handle: event.target.value,
+                }))
+              }
+              className={fieldClassName()}
+              placeholder="@usuario ou identificador"
+            />
+            <input
+              value={editingModelForm.tagline}
+              onChange={(event) =>
+                setEditingModelForm((current) => ({
+                  ...current,
+                  tagline: event.target.value,
+                }))
+              }
+              className={`sm:col-span-2 ${fieldClassName()}`}
+              placeholder="Frase curta opcional"
+            />
+
+            <UploadField
+              label="Foto de perfil"
+              accept="image/*"
+              file={editingModelFiles.profileImage}
+              urlValue={editingModelForm.profileImage}
+              onFileChange={(file) =>
+                setEditingModelFiles((current) => ({
+                  ...current,
+                  profileImage: file,
+                }))
+              }
+              onUrlChange={(value) =>
+                setEditingModelForm((current) => ({
+                  ...current,
+                  profileImage: value,
+                }))
+              }
+              urlPlaceholder="URL opcional da foto de perfil"
+              previewShape="circle"
+              previewAlt="Preview da foto de perfil"
+            />
+
+            <UploadField
+              label="Imagem de capa"
+              accept="image/*"
+              file={editingModelFiles.coverImage}
+              urlValue={editingModelForm.coverImage}
+              onFileChange={(file) =>
+                setEditingModelFiles((current) => ({
+                  ...current,
+                  coverImage: file,
+                }))
+              }
+              onUrlChange={(value) =>
+                setEditingModelForm((current) => ({
+                  ...current,
+                  coverImage: value,
+                }))
+              }
+              urlPlaceholder="URL opcional da capa"
+              previewShape="landscape"
+              previewAlt="Preview da capa"
+            />
+
+            <button
+              type="button"
+              onClick={() => void handleUpdateModel(model.id)}
+              disabled={Boolean(activeTask)}
+              className={`sm:col-span-2 ${buttonClassName()}`}
+            >
+              {getSubmitLabel(
+                `update-model-${model.id}`,
+                'Salvar alteracoes',
+                'Salvando alteracoes...',
+              )}
+            </button>
+
+            {getTaskProgress(`update-model-${model.id}`) ? (
+              <div className="sm:col-span-2">
+                <TaskProgressBar progress={getTaskProgress(`update-model-${model.id}`)!} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="hidden rounded-[24px] border border-white/10 bg-black/25 p-4 xl:block">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <span className={labelClassName()}>Adicionar previas</span>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                Envie novas imagens e videos direto nessa modelo aberta, sem voltar para a area
+                geral do painel.
+              </p>
+            </div>
+            <span className="text-xs text-white/45">
+              {model.gallery.length} previa(s) cadastrada(s)
+            </span>
+          </div>
+
+          <div className="mt-4">{renderInlineMediaEditorContent(model)}</div>
+        </div>
+
+        <div className="rounded-[24px] border border-white/10 bg-black/25 p-4 xl:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className={labelClassName()}>Adicionar previas</span>
+              <p className="mt-2 text-sm leading-6 text-zinc-300">
+                Abra um dialog para adicionar novos videos e imagens nessa modelo.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileInlineMediaModalModelId(model.id)}
+              className={buttonClassName()}
+            >
+              Abrir
+            </button>
+          </div>
+        </div>
+
+        <AdminMobileDialog
+          isOpen={mobileInlineMediaModalModelId === model.id}
+          title={`Adicionar previas em ${model.name}`}
+          onClose={() => setMobileInlineMediaModalModelId(null)}
+        >
+          {renderInlineMediaEditorContent(model)}
+        </AdminMobileDialog>
+
+        <div className="rounded-[24px] border border-white/10 bg-black/30 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <span className={labelClassName()}>Conteudo completo</span>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                Adicione videos exclusivos com link proprio e acompanhe as visualizacoes.
+              </p>
+            </div>
+            <span className="text-xs text-white/45">
+              {fullContentItems.length} video(s) exclusivo(s)
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr),220px] xl:items-start">
+            <div>
+              {fullContentItems.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                  {fullContentItems.map((item) => {
+                    const itemHref = getModelFullContentHref(model, item.routeToken);
+
+                    return (
+                      <article
+                        key={item.id}
+                        className="relative overflow-hidden rounded-[20px] border border-white/10 bg-black/70"
+                      >
+                        <div className="aspect-[16/10] bg-zinc-950">
+                          <AutoplayMedia
+                            type="video"
+                            src={item.videoUrl}
+                            poster={model.coverImage}
+                            alt={item.title}
+                            className="h-full w-full"
+                            playMode="hover"
+                            preloadStrategy="metadata"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveFullContentVideo(model.id, item.id)}
+                          disabled={Boolean(activeTask)}
+                          className="absolute right-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          X
+                        </button>
+                        <div className="grid gap-2 px-3 py-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-white/85">
+                              {item.title}
+                            </div>
+                            <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/45">
+                              {item.views} visualizacao(oes)
+                            </div>
+                          </div>
+                          <a
+                            href={itemHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="line-clamp-2 break-all text-[11px] text-rose-200 underline-offset-4 transition hover:text-white hover:underline"
+                          >
+                            {itemHref}
+                          </a>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-sm leading-6 text-zinc-400">
+                  Nenhum video exclusivo cadastrado ainda para essa modelo.
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-3.5 xl:self-start">
+              <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
+                <input
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  disabled={Boolean(activeTask)}
+                  onChange={(event) =>
+                    setFullContentFiles((current) => ({
+                      ...current,
+                      [model.id]: event.target.files?.[0] ?? null,
+                    }))
+                  }
+                />
+                {currentFullContentFile
+                  ? `Selecionado: ${currentFullContentFile.name}`
+                  : 'Selecionar video exclusivo'}
+              </label>
+
+              {currentFullContentFile ? (
+                <div className="w-[118px] max-w-full">
+                  <PendingMediaPreview file={currentFullContentFile} />
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void handleSaveFullContentVideo(model)}
+                disabled={Boolean(activeTask)}
+                className={buttonClassName()}
+              >
+                {getSubmitLabel(
+                  fullContentTaskId,
+                  'Adicionar conteudo completo',
+                  'Salvando conteudo completo...',
+                )}
+              </button>
+
+              {getTaskProgress(fullContentTaskId) ? (
+                <TaskProgressBar progress={getTaskProgress(fullContentTaskId)!} />
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {model.gallery.length === 0 ? (
+          <p className="text-sm text-zinc-400">Essa modelo ainda nao tem conteudo cadastrado.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
+            {model.gallery.map((item) => (
+              <div key={item.id} className="relative overflow-hidden rounded-2xl">
+                <div className="aspect-[4/5] bg-zinc-950">
+                  <AutoplayMedia
+                    type={item.type}
+                    src={item.src}
+                    poster={item.thumbnail}
+                    alt={item.title}
+                    className="h-full w-full"
+                    playMode="hover"
+                    preloadStrategy="metadata"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleRemoveMedia(model.id, item.id)}
+                  disabled={Boolean(activeTask)}
+                  className="absolute right-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  X
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-ink text-white">
       <div className="mx-auto max-w-[1640px] px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
+        <div className={desktopShellClassName}>
+          <aside className="hidden xl:block xl:h-fit xl:sticky xl:top-6">
+            <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl">
+              <div
+                className={`flex items-start gap-2 ${isDesktopModelRailCollapsed ? 'justify-center px-0 pb-2' : 'justify-between px-1 pb-3'}`}
+              >
+                {!isDesktopModelRailCollapsed ? (
+                  <div className="min-w-0">
+                    <span className={labelClassName()}>Modelos</span>
+                    <p className="mt-2 text-sm leading-6 text-zinc-300">
+                      Selecione uma modelo para abrir a gestao completa no painel central.
+                    </p>
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsDesktopModelRailCollapsed((current) => !current)
+                  }
+                  className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-lg font-semibold text-white/75 transition hover:bg-white/[0.06] ${
+                    isDesktopModelRailCollapsed ? 'mx-auto' : ''
+                  }`}
+                  aria-label={
+                    isDesktopModelRailCollapsed
+                      ? 'Expandir lista de modelos'
+                      : 'Recolher lista de modelos'
+                  }
+                  title={
+                    isDesktopModelRailCollapsed
+                      ? 'Expandir lista de modelos'
+                      : 'Recolher lista de modelos'
+                  }
+                >
+                  {isDesktopModelRailCollapsed ? '\u203A' : '\u2039'}
+                </button>
+              </div>
+
+              {!isDesktopModelRailCollapsed ? (
+                <div className="pb-3">
+                  <input
+                    value={modelSearchQuery}
+                    onChange={(event) => setModelSearchQuery(event.target.value)}
+                    className={fieldClassName()}
+                    placeholder="Pesquisar modelo..."
+                  />
+                </div>
+              ) : null}
+
+              {filteredModels.length > 0 ? (
+                <div className="hide-scrollbar max-h-[calc(100vh-80px)] space-y-2 overflow-y-auto pr-1">
+                  {filteredModels.map((model) => {
+                    const fullContentItems = model.fullContentVideos || [];
+                    const isSelected = selectedDesktopModel?.id === model.id;
+
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => {
+                          if (selectedDesktopModelId === model.id) {
+                            setSelectedDesktopModelId(null);
+                            setExpandedModelId(null);
+                            return;
+                          }
+
+                          setSelectedDesktopModelId(model.id);
+                          setExpandedModelId(model.id);
+                          setOpenSections((current) => ({ ...current, models: true }));
+                        }}
+                        className={`group relative flex w-full items-center rounded-[22px] text-left transition ${
+                          isDesktopModelRailCollapsed
+                            ? isSelected
+                              ? 'justify-center border-transparent bg-transparent px-1.5 py-2.5'
+                              : 'justify-center border-transparent bg-transparent px-1.5 py-2.5 hover:bg-white/[0.04]'
+                            : isSelected
+                              ? 'gap-3 border border-rose-400/35 bg-gradient-to-r from-rose-600/16 to-violet-600/16 px-3 py-3'
+                              : 'gap-3 border border-white/10 bg-white/[0.03] px-3 py-3 hover:bg-white/[0.06]'
+                        }`}
+                        title={model.name}
+                      >
+                        {isDesktopModelRailCollapsed && isSelected ? (
+                          <span className="absolute left-0 top-1/2 h-9 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-rose-400 to-violet-400 opacity-95" />
+                        ) : null}
+
+                        <div
+                          className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-black transition ${
+                            isDesktopModelRailCollapsed
+                              ? isSelected
+                                ? 'ring-2 ring-rose-300/80 shadow-[0_0_0_4px_rgba(244,114,182,0.12),0_16px_36px_rgba(139,92,246,0.24)]'
+                                : 'ring-1 ring-white/10 group-hover:ring-white/20'
+                              : 'border border-white/10'
+                          }`}
+                        >
+                          <img
+                            src={model.profileImage}
+                            alt={model.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+
+                        {!isDesktopModelRailCollapsed ? (
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-base font-semibold text-white">
+                              {model.name}
+                            </div>
+                            {model.handle ? (
+                              <div className="truncate text-sm text-white/58">{model.handle}</div>
+                            ) : null}
+                            <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-white/60">
+                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                                {model.gallery.length} previas
+                              </span>
+                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                                {fullContentItems.length} exclusivos
+                              </span>
+                              {model.hiddenOnHome ? (
+                                <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-amber-100">
+                                  Oculta
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm leading-6 text-zinc-400">
+                  {siteContent.models.length === 0
+                    ? 'Nenhuma modelo cadastrada ainda.'
+                    : 'Nenhuma modelo encontrada para essa busca.'}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <div className="min-w-0">
         <header className="rounded-[30px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6 xl:p-7">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
@@ -1938,12 +2732,18 @@ export function AdminPanel({
             </div>
           ) : null}
 
-          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 lg:flex lg:flex-wrap">
+          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:flex xl:flex-wrap">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
               Modelos: {siteContent.models.length}
             </span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
               Midias: {totalMedia}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
+              Exclusivos: {totalFullContentVideos}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
+              Ocultas: {hiddenModelsCount}
             </span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/75">
               Prints: {siteContent.groupProofItems.length}
@@ -1971,96 +2771,11 @@ export function AdminPanel({
           </div>
         ) : null}
 
-        <div className="mt-4 xl:grid xl:grid-cols-[320px,minmax(0,1fr)] xl:gap-5">
-          <aside className="hidden xl:grid xl:h-fit xl:content-start xl:gap-4 xl:sticky xl:top-6">
-            <div className={sidebarCardClassName()}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <span className={labelClassName()}>Visao geral</span>
-                  <h2 className="mt-2 font-display text-2xl font-semibold text-white">
-                    Painel rapido
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-white/65">
-                    Tudo que voce usa no dia a dia, sem precisar navegar por uma lista longa no desktop.
-                  </p>
-                </div>
-                {isSaving ? (
-                  <span className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-100">
-                    Salvando
-                  </span>
-                ) : (
-                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                    Em dia
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Modelos
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-white">
-                    {siteContent.models.length}
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Midias
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-white">{totalMedia}</div>
-                </div>
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Exclusivos
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-white">
-                    {totalFullContentVideos}
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Ocultas
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-white">
-                    {hiddenModelsCount}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className={sidebarCardClassName()}>
-              <span className={labelClassName()}>Status</span>
-              <div className="mt-3 grid gap-3">
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Tarefa ativa
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-white/82">
-                    {taskProgress ? `${taskProgress.label} ${taskProgress.value}%` : 'Nenhuma tarefa em andamento.'}
-                  </div>
-                </div>
-
-                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
-                    Cache do Telegram
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-white/82">
-                    {cacheWarmStatus
-                      ? `${cacheWarmStatus.alreadyCached} em cache, ${cacheWarmStatus.failed} falha(s).`
-                      : 'Sem verificacao recente registrada nesta sessao.'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <div className="space-y-4">
-            <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr),minmax(0,0.95fr)]">
+        <div className="mt-4 space-y-4">
+            <div className={`grid gap-4 2xl:grid-cols-[minmax(0,1fr),minmax(0,0.95fr)] ${isDesktopModelFocused ? 'xl:hidden' : ''}`}>
               <div className="space-y-4">
           <AdminSection
             title="Adicionar modelo"
-            subtitle="Cadastre perfil, capa e dados principais com preview antes de salvar."
             sectionId="admin-section-model"
             isOpen={openSections.model}
             onToggle={() => toggleSection('model')}
@@ -2148,7 +2863,6 @@ export function AdminPanel({
 
           <AdminSection
             title="Adicionar conteudo"
-            subtitle="Envie varios videos ou imagens de uma vez. A home e o modal puxam daqui."
             countLabel={siteContent.models.length === 0 ? 'Sem modelos' : undefined}
             sectionId="admin-section-media"
             isOpen={openSections.media}
@@ -2220,7 +2934,6 @@ export function AdminPanel({
 
           <AdminSection
             title="Fundos da home"
-            subtitle="Cadastre imagens separadas para mobile e desktop. O site escolhe uma delas ao abrir."
             countLabel={`${totalBackgrounds} fundo(s)`}
             sectionId="admin-section-backgrounds"
             isOpen={openSections.backgrounds}
@@ -2340,7 +3053,6 @@ export function AdminPanel({
 
           <AdminSection
             title="Prints do grupo"
-            subtitle="Essa faixa alimenta a secao 'Grupo por Dentro' com prints verticais."
             countLabel={`${siteContent.groupProofItems.length} print(s)`}
             sectionId="admin-section-proofs"
             isOpen={openSections.proofs}
@@ -2427,13 +3139,18 @@ export function AdminPanel({
             sectionId="admin-section-models"
             isOpen={openSections.models}
             onToggle={() => toggleSection('models')}
+            className="xl:hidden"
           >
-            <div className="grid gap-3">
-              {siteContent.models.map((model) => {
+            <div className="grid gap-3 xl:hidden">
+              <input
+                value={modelSearchQuery}
+                onChange={(event) => setModelSearchQuery(event.target.value)}
+                className={fieldClassName()}
+                placeholder="Pesquisar modelo..."
+              />
+
+              {filteredModels.map((model) => {
                 const isExpanded = expandedModelId === model.id;
-                const isEditing = editingModelId === model.id;
-                const currentFullContentFile = fullContentFiles[model.id] ?? null;
-                const fullContentTaskId = `full-content-${model.id}`;
                 const fullContentItems = model.fullContentVideos || [];
 
                 return (
@@ -2481,323 +3198,69 @@ export function AdminPanel({
                       </span>
                     </button>
 
-                    {isExpanded ? (
-                      <div className="mt-4 space-y-4">
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,420px),1fr] xl:items-start">
-                          <div className="w-full max-w-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-black">
-                          <div className="aspect-[16/10]">
-                            <img
-                              src={model.coverImage}
-                              alt={model.name}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                          </div>
-                        </div>
-
-                          <div className="min-w-0 self-start">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleModelHomeVisibility(model)}
-                              disabled={Boolean(activeTask)}
-                              className={ghostButtonClassName()}
-                            >
-                              {model.hiddenOnHome ? 'Mostrar na home' : 'Ocultar da home'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                isEditing ? stopEditingModel() : startEditingModel(model)
-                              }
-                              className={ghostButtonClassName()}
-                            >
-                              {isEditing ? 'Cancelar edicao' : 'Editar'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleRemoveModel(model.id)}
-                              disabled={Boolean(activeTask)}
-                              className={dangerGhostButtonClassName()}
-                            >
-                              Remover
-                            </button>
-                          </div>
-
-                          {model.tagline ? (
-                            <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300">
-                              {model.tagline}
-                            </p>
-                          ) : null}
-                        </div>
-                        </div>
-
-                        {isEditing ? (
-                          <div className="grid gap-3 rounded-[24px] border border-white/10 bg-black/30 p-4 sm:grid-cols-2 sm:items-start">
-                              <input
-                                value={editingModelForm.name}
-                                onChange={(event) =>
-                                  setEditingModelForm((current) => ({
-                                    ...current,
-                                    name: event.target.value,
-                                  }))
-                                }
-                                className={fieldClassName()}
-                                placeholder="Nome da modelo"
-                              />
-                              <input
-                                value={editingModelForm.handle}
-                                onChange={(event) =>
-                                  setEditingModelForm((current) => ({
-                                    ...current,
-                                    handle: event.target.value,
-                                  }))
-                                }
-                                className={fieldClassName()}
-                                placeholder="@usuario ou identificador"
-                              />
-                              <input
-                                value={editingModelForm.tagline}
-                                onChange={(event) =>
-                                  setEditingModelForm((current) => ({
-                                    ...current,
-                                    tagline: event.target.value,
-                                  }))
-                                }
-                                className={`sm:col-span-2 ${fieldClassName()}`}
-                                placeholder="Frase curta opcional"
-                              />
-
-                              <UploadField
-                                label="Foto de perfil"
-                                accept="image/*"
-                                file={editingModelFiles.profileImage}
-                                urlValue={editingModelForm.profileImage}
-                                onFileChange={(file) =>
-                                  setEditingModelFiles((current) => ({
-                                    ...current,
-                                    profileImage: file,
-                                  }))
-                                }
-                                onUrlChange={(value) =>
-                                  setEditingModelForm((current) => ({
-                                    ...current,
-                                    profileImage: value,
-                                  }))
-                                }
-                                urlPlaceholder="URL opcional da foto de perfil"
-                                previewShape="circle"
-                                previewAlt="Preview da foto de perfil"
-                              />
-
-                              <UploadField
-                                label="Imagem de capa"
-                                accept="image/*"
-                                file={editingModelFiles.coverImage}
-                                urlValue={editingModelForm.coverImage}
-                                onFileChange={(file) =>
-                                  setEditingModelFiles((current) => ({
-                                    ...current,
-                                    coverImage: file,
-                                  }))
-                                }
-                                onUrlChange={(value) =>
-                                  setEditingModelForm((current) => ({
-                                    ...current,
-                                    coverImage: value,
-                                  }))
-                                }
-                                urlPlaceholder="URL opcional da capa"
-                                previewShape="landscape"
-                                previewAlt="Preview da capa"
-                              />
-
-                              <button
-                                type="button"
-                                onClick={() => void handleUpdateModel(model.id)}
-                                disabled={Boolean(activeTask)}
-                                className={`sm:col-span-2 ${buttonClassName()}`}
-                              >
-                                {getSubmitLabel(
-                                  `update-model-${model.id}`,
-                                  'Salvar alteracoes',
-                                  'Salvando alteracoes...',
-                                )}
-                              </button>
-
-                              {getTaskProgress(`update-model-${model.id}`) ? (
-                                <div className="sm:col-span-2">
-                                  <TaskProgressBar
-                                    progress={getTaskProgress(`update-model-${model.id}`)!}
-                                  />
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-
-                        <div className="rounded-[24px] border border-white/10 bg-black/30 p-4">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <span className={labelClassName()}>Conteudo completo</span>
-                                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-                                  Adicione videos exclusivos com link proprio e acompanhe as visualizacoes.
-                                </p>
-                              </div>
-                              <span className="text-xs text-white/45">
-                                {fullContentItems.length} video(s) exclusivo(s)
-                              </span>
-                            </div>
-
-                            {fullContentItems.length > 0 ? (
-                              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
-                                {fullContentItems.map((item) => {
-                                  const itemHref = getModelFullContentHref(model, item.routeToken);
-
-                                  return (
-                                    <article
-                                      key={item.id}
-                                      className="overflow-hidden rounded-[22px] border border-white/10 bg-black"
-                                    >
-                                      <div className="aspect-[4/5] bg-zinc-950">
-                                        <AutoplayMedia
-                                          type="video"
-                                          src={item.videoUrl}
-                                          poster={model.coverImage}
-                                          alt={item.title}
-                                          className="h-full w-full"
-                                          playMode="hover"
-                                          preloadStrategy="metadata"
-                                        />
-                                      </div>
-                                      <div className="grid gap-2 px-3 py-3">
-                                        <div className="flex items-start justify-between gap-2">
-                                          <div className="min-w-0">
-                                            <div className="truncate text-sm font-medium text-white/85">
-                                              {item.title}
-                                            </div>
-                                            <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/45">
-                                              {item.views} visualizacao(oes)
-                                            </div>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleRemoveFullContentVideo(model.id, item.id)}
-                                            disabled={Boolean(activeTask)}
-                                            className="rounded-full border border-white/10 px-2 py-1 text-[11px] text-white/70 disabled:cursor-not-allowed disabled:opacity-60"
-                                          >
-                                            X
-                                          </button>
-                                        </div>
-                                        <a
-                                          href={itemHref}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="break-all text-[11px] text-rose-200 underline-offset-4 transition hover:text-white hover:underline"
-                                        >
-                                          {itemHref}
-                                        </a>
-                                      </div>
-                                    </article>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-
-                            <div className="mt-4 grid gap-3">
-                              <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
-                                <input
-                                  type="file"
-                                  accept="video/*"
-                                  className="hidden"
-                                  disabled={Boolean(activeTask)}
-                                  onChange={(event) =>
-                                    setFullContentFiles((current) => ({
-                                      ...current,
-                                      [model.id]: event.target.files?.[0] ?? null,
-                                    }))
-                                  }
-                                />
-                                {currentFullContentFile
-                                  ? `Selecionado: ${currentFullContentFile.name}`
-                                  : 'Selecionar video exclusivo'}
-                              </label>
-
-                              {currentFullContentFile ? (
-                                <div className="w-[160px] max-w-full">
-                                  <PendingMediaPreview file={currentFullContentFile} />
-                                </div>
-                              ) : null}
-
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleSaveFullContentVideo(model)}
-                                  disabled={Boolean(activeTask)}
-                                  className={buttonClassName()}
-                                >
-                                  {getSubmitLabel(
-                                    fullContentTaskId,
-                                    'Adicionar conteudo completo',
-                                    'Salvando conteudo completo...',
-                                  )}
-                                </button>
-                              </div>
-
-                              {getTaskProgress(fullContentTaskId) ? (
-                                <TaskProgressBar progress={getTaskProgress(fullContentTaskId)!} />
-                              ) : null}
-                            </div>
-                          </div>
-
-                        {model.gallery.length === 0 ? (
-                          <p className="text-sm text-zinc-400">
-                              Essa modelo ainda nao tem conteudo cadastrado.
-                          </p>
-                        ) : (
-                          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
-                              {model.gallery.map((item) => (
-                                <div key={item.id} className="relative overflow-hidden rounded-2xl">
-                                  <div className="aspect-[4/5] bg-zinc-950">
-                                    <AutoplayMedia
-                                      type={item.type}
-                                      src={item.src}
-                                      poster={item.thumbnail}
-                                      alt={item.title}
-                                      className="h-full w-full"
-                                      playMode="hover"
-                                      preloadStrategy="metadata"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleRemoveMedia(model.id, item.id)}
-                                    disabled={Boolean(activeTask)}
-                                    className="absolute right-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    X
-                                  </button>
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
+                    {isExpanded ? <div className="mt-4">{renderModelManagementBody(model)}</div> : null}
                   </article>
                 );
               })}
             </div>
 
-            {!isLoading && siteContent.models.length === 0 ? (
+            {!isLoading && filteredModels.length === 0 ? (
               <p className="text-sm text-zinc-400">
-                Nenhuma modelo cadastrada ainda. A home ficara vazia ate voce adicionar as
-                primeiras.
+                {siteContent.models.length === 0
+                  ? 'Nenhuma modelo cadastrada ainda. A home ficara vazia ate voce adicionar as primeiras.'
+                  : 'Nenhuma modelo encontrada para essa busca.'}
               </p>
             ) : null}
           </AdminSection>
 
+          {selectedDesktopModel ? (
+            <section className="hidden xl:block rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+              <div className="space-y-5">
+                <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border border-white/10 bg-black">
+                      <img
+                        src={selectedDesktopModel.profileImage}
+                        alt={selectedDesktopModel.name}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+
+                    <div className="min-w-0">
+                      <h3 className="truncate font-display text-3xl font-semibold text-white">
+                        {selectedDesktopModel.name}
+                      </h3>
+                      {selectedDesktopModel.handle ? (
+                        <p className="mt-1 truncate text-base text-zinc-300">
+                          {selectedDesktopModel.handle}
+                        </p>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/70">
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+                          {selectedDesktopModel.gallery.length} conteudo(s)
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+                          {(selectedDesktopModel.fullContentVideos || []).length} exclusivo(s)
+                        </span>
+                        {selectedDesktopModel.hiddenOnHome ? (
+                          <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-amber-100">
+                            Oculta da home
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {renderModelManagementBody(selectedDesktopModel)}
+              </div>
+            </section>
+          ) : null}
+
           <section
             id="admin-section-telegram-cache"
-            className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5 xl:p-6"
+            className={`rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5 xl:p-6 ${isDesktopModelFocused ? 'xl:hidden' : ''}`}
           >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -3102,8 +3565,9 @@ export function AdminPanel({
             ) : null}
           </section>
         </div>
-        </div>
       </div>
+      </div>
+    </div>
     </div>
   );
 }

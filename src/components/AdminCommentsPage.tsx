@@ -233,10 +233,13 @@ export function AdminCommentsPage({
               value={selectedModelId}
               onChange={(event) => setSelectedModelId(event.target.value)}
               className="min-h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white outline-none transition focus:border-white/20 focus:bg-white/[0.06] md:text-[15px]"
+              style={{ colorScheme: 'dark' }}
             >
-              <option value="all">Todas as modelos</option>
+              <option value="all" className="bg-zinc-950 text-white">
+                Todas as modelos
+              </option>
               {siteContent.models.map((model) => (
-                <option key={model.id} value={model.id}>
+                <option key={model.id} value={model.id} className="bg-zinc-950 text-white">
                   {model.name}
                 </option>
               ))}

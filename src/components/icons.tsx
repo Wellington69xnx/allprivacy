@@ -206,3 +206,14 @@ export function VerifiedBadgeIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function HeartIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M12 20.3 4.9 13.6a4.7 4.7 0 0 1-.4-6.7 4.7 4.7 0 0 1 6.6-.4l.9.8.9-.8a4.7 4.7 0 0 1 6.6.4 4.7 4.7 0 0 1-.4 6.7L12 20.3Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}

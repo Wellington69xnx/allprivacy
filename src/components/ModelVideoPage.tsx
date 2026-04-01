@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import { AllPrivacyVideoPlayer } from './AllPrivacyVideoPlayer';
 import { BrandMark } from './BrandMark';
-import { VerifiedBadgeIcon } from './icons';
+import { HeartIcon, VerifiedBadgeIcon } from './icons';
 import { SiteFooter } from './SiteFooter';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -62,8 +62,13 @@ export function ModelVideoPage({
   const [commentFeedback, setCommentFeedback] = useState<string | null>(null);
   const [commentFeedbackTone, setCommentFeedbackTone] = useState<'success' | 'error'>('success');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [likedCommentIds, setLikedCommentIds] = useState<string[]>([]);
+  const [likePendingId, setLikePendingId] = useState<string | null>(null);
   const viewStorageKey = content?.routeToken
     ? `allprivacy-full-content-view:${content.routeToken}`
+    : '';
+  const likeStorageKey = content?.routeToken
+    ? `allprivacy-full-content-likes:${content.routeToken}`
     : '';
   const orderedComments = useMemo(
     () =>
@@ -134,7 +139,20 @@ export function ModelVideoPage({
     setCaptchaInput('');
     setCommentFeedback(null);
     setCommentFeedbackTone('success');
-  }, [content?.routeToken, content?.comments]);
+    setLikePendingId(null);
+
+    if (typeof window !== 'undefined' && likeStorageKey) {
+      try {
+        const raw = window.localStorage.getItem(likeStorageKey);
+        const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+        setLikedCommentIds(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setLikedCommentIds([]);
+      }
+    } else {
+      setLikedCommentIds([]);
+    }
+  }, [content?.routeToken, content?.comments, likeStorageKey]);
 
   const handleCommentSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -198,6 +216,64 @@ export function ModelVideoPage({
       );
     } finally {
       setIsSubmittingComment(false);
+    }
+  };
+
+  const handleLikeComment = async (commentId: string) => {
+    if (!content?.routeToken || likePendingId) {
+      return;
+    }
+
+    setLikePendingId(commentId);
+
+    try {
+      const response = await fetch('/api/full-content/comment-like', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          routeToken: content.routeToken,
+          commentId,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { message?: string; liked?: boolean; comment?: ModelFullContentComment }
+        | null;
+
+      if (!response.ok || !payload?.comment) {
+        throw new Error(payload?.message || 'Nao foi possivel curtir agora.');
+      }
+
+      setComments((current) =>
+        current.map((comment) =>
+          comment.id === commentId
+            ? {
+                ...comment,
+                likes: payload.comment?.likes ?? comment.likes,
+              }
+            : comment,
+        ),
+      );
+
+      setLikedCommentIds((current) => {
+        const alreadyLiked = current.includes(commentId);
+        const next = payload.liked
+          ? alreadyLiked
+            ? current
+            : [...current, commentId]
+          : current.filter((id) => id !== commentId);
+
+        if (typeof window !== 'undefined' && likeStorageKey) {
+          window.localStorage.setItem(likeStorageKey, JSON.stringify(next));
+        }
+
+        return next;
+      });
+    } catch {
+      // Falha de like nao deve quebrar a leitura da pagina.
+    } finally {
+      setLikePendingId(null);
     }
   };
 
@@ -360,7 +436,7 @@ export function ModelVideoPage({
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: 'easeOut', delay: 0.1 }}
-            className="pt-6 sm:pt-8"
+            className="pt-5 sm:pt-7"
           >
             <div className="sm:mx-auto sm:max-w-5xl lg:max-w-[980px]">
               <div>
@@ -369,45 +445,46 @@ export function ModelVideoPage({
                 </h2>
               </div>
 
-              <form onSubmit={handleCommentSubmit} className="mt-4 grid gap-2.5 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <input
-                    value={commentName}
-                    onChange={(event) => setCommentName(event.target.value)}
-                    className="min-h-10 rounded-2xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:text-[14px]"
-                    placeholder="Seu nome"
-                    maxLength={60}
-                  />
-                  <div className="text-right text-[10px] text-white/35">
-                    {commentName.length}/60
+              <form onSubmit={handleCommentSubmit} className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(136px,42%)] items-start gap-2 sm:col-span-2 sm:inline-grid sm:w-fit sm:max-w-none sm:grid-cols-[200px_190px] sm:gap-0.0">
+                  <div>
+                    <input
+                      value={commentName}
+                      onChange={(event) => setCommentName(event.target.value)}
+                      className="min-h-9 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:text-[13px]"
+                      placeholder="Seu nome"
+                      maxLength={20}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5">
+                      <input
+                        value={captchaInput}
+                        onChange={(event) => setCaptchaInput(event.target.value)}
+                        inputMode="numeric"
+                        className="min-h-9 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:text-[13px]"
+                        placeholder={`${captchaChallenge.left} + ${captchaChallenge.right} = ?`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCaptchaChallenge(createCommentCaptcha());
+                          setCaptchaInput('');
+                        }}
+                        className="inline-flex min-h-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70 transition hover:bg-white/[0.06]"
+                      >
+                        Trocar
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input
-                    value={captchaInput}
-                    onChange={(event) => setCaptchaInput(event.target.value)}
-                    inputMode="numeric"
-                    className="min-h-10 rounded-2xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:text-[14px]"
-                    placeholder={`Quanto é ${captchaChallenge.left} + ${captchaChallenge.right}?`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCaptchaChallenge(createCommentCaptcha());
-                      setCaptchaInput('');
-                    }}
-                    className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70 transition hover:bg-white/[0.06]"
-                  >
-                    Trocar
-                  </button>
-                </div>
-
-                <div className="grid gap-1.5 sm:col-span-2">
+                <div className="grid gap-1 sm:col-span-2">
                   <textarea
                     value={commentMessage}
                     onChange={(event) => setCommentMessage(event.target.value)}
-                    className="min-h-[88px] rounded-[22px] border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:min-h-[96px] sm:text-[14px]"
+                    className="min-h-[72px] rounded-[20px] border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:min-h-[80px] sm:text-[13px]"
                     placeholder="Escreva seu comentário"
                     maxLength={200}
                   />
@@ -416,11 +493,11 @@ export function ModelVideoPage({
                   </div>
                 </div>
 
-                <div className="sm:col-span-2">
+                <div className="-mt-4 sm:col-span-2">
                   <button
                     type="submit"
                     disabled={isSubmittingComment}
-                    className="inline-flex min-h-10 items-center justify-center rounded-2xl bg-gradient-to-r from-rose-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-9 items-center justify-center rounded-2xl bg-gradient-to-r from-rose-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-11 sm:px-6 sm:py-2.5 sm:text-[15px]"
                   >
                     {isSubmittingComment ? 'Enviando...' : 'Comentar'}
                   </button>
@@ -429,7 +506,7 @@ export function ModelVideoPage({
 
               {commentFeedback ? (
                 <div
-                  className={`mt-3 rounded-[18px] border px-3.5 py-2.5 text-sm ${
+                  className={`mt-2.5 rounded-[16px] border px-3 py-2 text-sm ${
                     commentFeedbackTone === 'error'
                       ? 'border-red-500/25 bg-red-500/10 text-red-100'
                       : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
@@ -439,26 +516,49 @@ export function ModelVideoPage({
                 </div>
               ) : null}
 
-              <div className="mt-4 space-y-2.5">
+              <div className="mt-5 space-y-2">
                 {orderedComments.length === 0 ? (
-                  <div className="rounded-[18px] border border-white/10 bg-black/20 px-3.5 py-3 text-sm text-white/60">
+                  <div className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white/60">
                     Ainda não há comentários. Seja o primeiro a comentar.
                   </div>
                 ) : (
                   orderedComments.map((comment) => (
                     <article
                       key={comment.id}
-                      className="rounded-[18px] border border-white/10 bg-black/20 px-3.5 py-3"
+                      className="rounded-[16px] border border-white/10 bg-black/20 px-3 py-2.5"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-white sm:text-[14px]">
-                          {comment.name}
-                        </h3>
-                        <span className="text-[10px] uppercase tracking-[0.12em] text-white/40">
-                          {formatCommentDate(comment.createdAt)}
-                        </span>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-semibold text-white sm:text-[14px]">
+                            {comment.name}
+                          </h3>
+                          <span className="mt-0.5 block text-[10px] uppercase tracking-[0.12em] text-white/40">
+                            {formatCommentDate(comment.createdAt)}
+                          </span>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <button
+                          type="button"
+                          onClick={() => void handleLikeComment(comment.id)}
+                          disabled={likePendingId === comment.id}
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium transition ${
+                            likedCommentIds.includes(comment.id)
+                              ? 'border-rose-400/25 bg-rose-500/10 text-rose-100'
+                              : 'border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.06]'
+                          } disabled:cursor-not-allowed disabled:opacity-70`}
+                          aria-label={
+                            likedCommentIds.includes(comment.id)
+                              ? 'Descurtir comentário'
+                              : 'Curtir comentário'
+                          }
+                          >
+                            <HeartIcon className="h-3.5 w-3.5" />
+                            <span>{comment.likes || 0}</span>
+                          </button>
+                        </div>
                       </div>
-                      <p className="mt-2 whitespace-pre-line text-sm leading-5 text-zinc-200">
+                      <p className="mt-1.5 whitespace-pre-line text-sm leading-5 text-zinc-200">
                         {comment.message}
                       </p>
                     </article>
