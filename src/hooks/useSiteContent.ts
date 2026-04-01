@@ -48,6 +48,12 @@ interface FullContentVideoInput {
   title?: string;
 }
 
+interface FullContentCommentRemoveInput {
+  modelId: string;
+  contentId: string;
+  commentId: string;
+}
+
 interface HeroBackgroundInput {
   title: string;
   image: string;
@@ -582,6 +588,34 @@ export function useSiteContent() {
     [updateSiteContent],
   );
 
+  const removeModelFullContentComment = useCallback(
+    async ({ modelId, contentId, commentId }: FullContentCommentRemoveInput) => {
+      await updateSiteContent((current) => ({
+        ...current,
+        models: current.models.map((model) => {
+          if (model.id !== modelId) {
+            return model;
+          }
+
+          return {
+            ...model,
+            fullContentVideos: (model.fullContentVideos || []).map((item) => {
+              if (item.id !== contentId) {
+                return item;
+              }
+
+              return {
+                ...item,
+                comments: (item.comments || []).filter((comment) => comment.id !== commentId),
+              };
+            }),
+          };
+        }),
+      }));
+    },
+    [updateSiteContent],
+  );
+
   const addGroupProofItem = useCallback(
     async (input: GroupProofInput) => {
       const nextItem: GroupProofItem = {
@@ -732,6 +766,7 @@ export function useSiteContent() {
     removeMediaFromModel,
     addModelFullContentVideo,
     removeModelFullContentVideo,
+    removeModelFullContentComment,
     addGroupProofItem,
     removeGroupProofItem,
     addHeroBackground,

@@ -409,10 +409,10 @@ export function ModelVideoPage({
                     onChange={(event) => setCommentMessage(event.target.value)}
                     className="min-h-[88px] rounded-[22px] border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] sm:min-h-[96px] sm:text-[14px]"
                     placeholder="Escreva seu comentário"
-                    maxLength={1200}
+                    maxLength={200}
                   />
                   <div className="text-right text-[10px] text-white/35">
-                    {commentMessage.length}/1200
+                    {commentMessage.length}/200
                   </div>
                 </div>
 

@@ -39,6 +39,10 @@ export function getAdminPath() {
   return '/admin';
 }
 
+export function getAdminCommentsPath() {
+  return '/admin/comentarios';
+}
+
 export function getAboutPath() {
   return '/sobre';
 }

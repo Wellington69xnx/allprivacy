@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AdminLogin } from './components/AdminLogin';
+import { AdminCommentsPage } from './components/AdminCommentsPage';
 import { AdminPanel } from './components/AdminPanel';
 import { FinalGroupCtaCard } from './components/FinalGroupCtaCard';
 import { HeroSection } from './components/HeroSection';
@@ -20,6 +21,7 @@ import {
   findModelByVideoRoute,
   findModelByRouteSlug,
   getAboutPath,
+  getAdminCommentsPath,
   getAdminPath,
   getHomePath,
   getSupportPath,
@@ -39,6 +41,7 @@ const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
 type CurrentView =
   | { type: 'site' }
   | { type: 'admin' }
+  | { type: 'admin-comments' }
   | { type: 'about' }
   | { type: 'support' }
   | { type: 'model'; modelSlug: string }
@@ -88,6 +91,10 @@ function getCurrentView(): CurrentView {
   const pathname = window.location.pathname || '/';
   const normalizedPathname =
     pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname;
+
+  if (normalizedPathname === getAdminCommentsPath()) {
+    return { type: 'admin-comments' };
+  }
 
   if (normalizedPathname === getAdminPath()) {
     return { type: 'admin' };
@@ -141,7 +148,11 @@ export default function App() {
   const adminAuth = useAdminAuth();
 
   useLayoutEffect(() => {
-    if (typeof window === 'undefined' || currentView.type === 'admin') {
+    if (
+      typeof window === 'undefined' ||
+      currentView.type === 'admin' ||
+      currentView.type === 'admin-comments'
+    ) {
       return;
     }
 
@@ -211,6 +222,11 @@ export default function App() {
 
       if (hash === '#/admin') {
         window.history.replaceState(null, '', getAdminPath());
+        return;
+      }
+
+      if (hash === '#/admin/comentarios') {
+        window.history.replaceState(null, '', getAdminCommentsPath());
         return;
       }
 
@@ -414,6 +430,33 @@ export default function App() {
           await adminAuth.logout();
         }}
         {...actions}
+      />
+    );
+  }
+
+  if (currentView.type === 'admin-comments') {
+    if (adminAuth.isChecking) {
+      return <AdminLogin isChecking error={null} onLogin={adminAuth.login} />;
+    }
+
+    if (!adminAuth.isAuthenticated) {
+      return (
+        <AdminLogin
+          isChecking={false}
+          error={adminAuth.error}
+          onLogin={adminAuth.login}
+        />
+      );
+    }
+
+    return (
+      <AdminCommentsPage
+        siteContent={siteContent}
+        isLoading={isSiteLoading}
+        onLogout={async () => {
+          await adminAuth.logout();
+        }}
+        removeModelFullContentComment={actions.removeModelFullContentComment}
       />
     );
   }

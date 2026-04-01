@@ -84,6 +84,9 @@ const adminPassword = 'Download';
 const authSecret = process.env.ADMIN_AUTH_SECRET || 'allprivacy-admin-local-secret';
 const sessionMaxAgeSeconds = 60 * 60 * 12;
 const uploadPlanKey = Symbol('allprivacy-upload-plan');
+const fullContentCommentRateLimitWindowMs = 10 * 60 * 1000;
+const fullContentCommentRateLimitMax = 5;
+const fullContentCommentRateLimitStore = new Map();
 
 const defaultSiteContent = {
   models: [],
@@ -146,6 +149,53 @@ function parseCookies(cookieHeader = '') {
         [key]: decodeURIComponent(value),
       };
     }, {});
+}
+
+function getRequestIpAddress(req) {
+  const forwardedForHeader = req.headers['x-forwarded-for'];
+  const forwardedFor = Array.isArray(forwardedForHeader)
+    ? forwardedForHeader[0]
+    : toText(forwardedForHeader);
+  const firstForwardedIp = forwardedFor.split(',')[0]?.trim();
+  return toText(req.ip) || toText(firstForwardedIp) || 'unknown';
+}
+
+function consumeFullContentCommentRateLimit(req) {
+  const key = getRequestIpAddress(req);
+  const now = Date.now();
+  const currentEntries = (fullContentCommentRateLimitStore.get(key) || []).filter(
+    (timestamp) => now - timestamp < fullContentCommentRateLimitWindowMs,
+  );
+
+  if (currentEntries.length >= fullContentCommentRateLimitMax) {
+    const retryAt = currentEntries[0] + fullContentCommentRateLimitWindowMs;
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(0, retryAt - now),
+    };
+  }
+
+  currentEntries.push(now);
+  fullContentCommentRateLimitStore.set(key, currentEntries);
+
+  if (fullContentCommentRateLimitStore.size > 3000) {
+    for (const [entryKey, timestamps] of fullContentCommentRateLimitStore.entries()) {
+      const nextTimestamps = timestamps.filter(
+        (timestamp) => now - timestamp < fullContentCommentRateLimitWindowMs,
+      );
+
+      if (nextTimestamps.length === 0) {
+        fullContentCommentRateLimitStore.delete(entryKey);
+      } else {
+        fullContentCommentRateLimitStore.set(entryKey, nextTimestamps);
+      }
+    }
+  }
+
+  return {
+    allowed: true,
+    retryAfterMs: 0,
+  };
 }
 
 function createSessionToken(username) {
@@ -759,7 +809,7 @@ function normalizeModelFullContentComment(item, index = 0) {
   return {
     id: toText(item.id) || createId(`full-comment-${index + 1}`),
     name: name.slice(0, 60),
-    message: message.slice(0, 1200),
+    message: message.slice(0, 200),
     createdAt,
   };
 }
@@ -1088,7 +1138,7 @@ async function incrementModelFullContentView(routeToken) {
 async function addModelFullContentComment(routeToken, name, message) {
   const normalizedRouteToken = toText(routeToken).toLowerCase();
   const normalizedName = toText(name).trim().slice(0, 60);
-  const normalizedMessage = toText(message).trim().slice(0, 1200);
+  const normalizedMessage = toText(message).trim().slice(0, 200);
 
   if (!normalizedRouteToken || !normalizedName || !normalizedMessage) {
     return null;
@@ -1672,6 +1722,19 @@ app.post('/api/full-content/comment', async (req, res) => {
 
   if (!routeToken || !name.trim() || !message.trim()) {
     res.status(400).json({ message: 'Nome, comentario e routeToken sao obrigatorios.' });
+    return;
+  }
+
+  const rateLimitState = consumeFullContentCommentRateLimit(req);
+
+  if (!rateLimitState.allowed) {
+    const retryAfterMinutes = Math.max(
+      1,
+      Math.ceil(rateLimitState.retryAfterMs / (60 * 1000)),
+    );
+    res.status(429).json({
+      message: `Limite de 5 comentarios a cada 10 minutos atingido. Tente novamente em cerca de ${retryAfterMinutes} minuto(s).`,
+    });
     return;
   }
 

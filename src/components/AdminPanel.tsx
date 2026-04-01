@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { getHomePath, getModelVideoPath } from '../lib/modelRoute';
+import { getAdminCommentsPath, getHomePath, getModelVideoPath } from '../lib/modelRoute';
 import type {
   HeroBackgroundTarget,
   ModelProfile,
@@ -202,6 +202,10 @@ function ghostButtonClassName() {
 
 function dangerGhostButtonClassName() {
   return 'inline-flex min-h-11 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-100 transition hover:bg-red-500/16 disabled:cursor-not-allowed disabled:opacity-60';
+}
+
+function sidebarCardClassName() {
+  return 'rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl';
 }
 
 function previewFrameClassName(shape: PreviewShape) {
@@ -534,6 +538,8 @@ function AdminSection({
   countLabel,
   isOpen,
   onToggle,
+  sectionId,
+  className,
   children,
 }: {
   title: string;
@@ -541,14 +547,19 @@ function AdminSection({
   countLabel?: string;
   isOpen: boolean;
   onToggle: () => void;
+  sectionId?: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.04] backdrop-blur-xl">
+    <section
+      id={sectionId}
+      className={`rounded-[28px] border border-white/10 bg-white/[0.04] backdrop-blur-xl ${className ?? ''}`}
+    >
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5 xl:px-6 xl:py-5"
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -569,7 +580,9 @@ function AdminSection({
         </span>
       </button>
 
-      {isOpen ? <div className="border-t border-white/10 px-4 py-4 sm:px-5">{children}</div> : null}
+      {isOpen ? (
+        <div className="border-t border-white/10 px-4 py-4 sm:px-5 xl:px-6 xl:py-5">{children}</div>
+      ) : null}
     </section>
   );
 }
@@ -1797,12 +1810,17 @@ export function AdminPanel({
   const totalBackgrounds =
     siteContent.heroBackgrounds.mobile.length + siteContent.heroBackgrounds.desktop.length;
   const cacheWarmGroups = groupCacheItems(cacheWarmStatus?.items ?? []);
+  const totalFullContentVideos = siteContent.models.reduce(
+    (total, model) => total + (model.fullContentVideos?.length ?? 0),
+    0,
+  );
+  const hiddenModelsCount = siteContent.models.filter((model) => model.hiddenOnHome).length;
 
   return (
     <div className="min-h-screen bg-ink text-white">
-      <div className="mx-auto max-w-[1260px] px-3 py-4 sm:px-5 sm:py-6">
-        <header className="rounded-[30px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto max-w-[1640px] px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
+        <header className="rounded-[30px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6 xl:p-7">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
               <a
                 href={getHomePath()}
@@ -1810,16 +1828,19 @@ export function AdminPanel({
               >
                 Voltar para o site
               </a>
-              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl xl:text-[2.8rem]">
                 AllPrivacy Admin
               </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-300 xl:text-[15px]">
                 Painel protegido com upload local, preview visual e blocos mais compactos no
                 celular.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap xl:min-w-[420px] xl:justify-end">
+              <a href={getAdminCommentsPath()} className={ghostButtonClassName()}>
+                Comentarios
+              </a>
               <button
                 type="button"
                 onClick={() => void onLogout()}
@@ -1950,10 +1971,97 @@ export function AdminPanel({
           </div>
         ) : null}
 
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 xl:grid xl:grid-cols-[320px,minmax(0,1fr)] xl:gap-5">
+          <aside className="hidden xl:grid xl:h-fit xl:content-start xl:gap-4 xl:sticky xl:top-6">
+            <div className={sidebarCardClassName()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className={labelClassName()}>Visao geral</span>
+                  <h2 className="mt-2 font-display text-2xl font-semibold text-white">
+                    Painel rapido
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-white/65">
+                    Tudo que voce usa no dia a dia, sem precisar navegar por uma lista longa no desktop.
+                  </p>
+                </div>
+                {isSaving ? (
+                  <span className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-100">
+                    Salvando
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    Em dia
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Modelos
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {siteContent.models.length}
+                  </div>
+                </div>
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Midias
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">{totalMedia}</div>
+                </div>
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Exclusivos
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {totalFullContentVideos}
+                  </div>
+                </div>
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Ocultas
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {hiddenModelsCount}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={sidebarCardClassName()}>
+              <span className={labelClassName()}>Status</span>
+              <div className="mt-3 grid gap-3">
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Tarefa ativa
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/82">
+                    {taskProgress ? `${taskProgress.label} ${taskProgress.value}%` : 'Nenhuma tarefa em andamento.'}
+                  </div>
+                </div>
+
+                <div className="rounded-[22px] border border-white/10 bg-black/25 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/45">
+                    Cache do Telegram
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/82">
+                    {cacheWarmStatus
+                      ? `${cacheWarmStatus.alreadyCached} em cache, ${cacheWarmStatus.failed} falha(s).`
+                      : 'Sem verificacao recente registrada nesta sessao.'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <div className="space-y-4">
+            <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr),minmax(0,0.95fr)]">
+              <div className="space-y-4">
           <AdminSection
             title="Adicionar modelo"
             subtitle="Cadastre perfil, capa e dados principais com preview antes de salvar."
+            sectionId="admin-section-model"
             isOpen={openSections.model}
             onToggle={() => toggleSection('model')}
           >
@@ -2042,6 +2150,7 @@ export function AdminPanel({
             title="Adicionar conteudo"
             subtitle="Envie varios videos ou imagens de uma vez. A home e o modal puxam daqui."
             countLabel={siteContent.models.length === 0 ? 'Sem modelos' : undefined}
+            sectionId="admin-section-media"
             isOpen={openSections.media}
             onToggle={() => toggleSection('media')}
           >
@@ -2106,10 +2215,14 @@ export function AdminPanel({
             </form>
           </AdminSection>
 
+              </div>
+              <div className="space-y-4">
+
           <AdminSection
             title="Fundos da home"
             subtitle="Cadastre imagens separadas para mobile e desktop. O site escolhe uma delas ao abrir."
             countLabel={`${totalBackgrounds} fundo(s)`}
+            sectionId="admin-section-backgrounds"
             isOpen={openSections.backgrounds}
             onToggle={() => toggleSection('backgrounds')}
           >
@@ -2229,6 +2342,7 @@ export function AdminPanel({
             title="Prints do grupo"
             subtitle="Essa faixa alimenta a secao 'Grupo por Dentro' com prints verticais."
             countLabel={`${siteContent.groupProofItems.length} print(s)`}
+            sectionId="admin-section-proofs"
             isOpen={openSections.proofs}
             onToggle={() => toggleSection('proofs')}
           >
@@ -2303,11 +2417,14 @@ export function AdminPanel({
               ))}
             </div>
           </AdminSection>
+              </div>
+            </div>
 
           <AdminSection
             title="Modelos cadastradas"
             subtitle="Abra apenas a modelo que quiser editar ou revisar."
             countLabel={`${siteContent.models.length} modelo(s)`}
+            sectionId="admin-section-models"
             isOpen={openSections.models}
             onToggle={() => toggleSection('models')}
           >
@@ -2678,7 +2795,10 @@ export function AdminPanel({
             ) : null}
           </AdminSection>
 
-          <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5">
+          <section
+            id="admin-section-telegram-cache"
+            className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5 xl:p-6"
+          >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-display text-xl font-semibold text-white sm:text-2xl">
@@ -2981,6 +3101,7 @@ export function AdminPanel({
               </div>
             ) : null}
           </section>
+        </div>
         </div>
       </div>
     </div>
