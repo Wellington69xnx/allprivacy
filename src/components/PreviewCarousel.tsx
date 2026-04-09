@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useLayoutEffect, useRef, useState, type WheelEventHandler } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type UIEventHandler, type WheelEventHandler } from 'react';
 import type { PreviewCard } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { ChevronLeftIcon, ChevronRightIcon } from './icons';
@@ -24,6 +24,7 @@ interface PreviewCarouselProps {
   desktopScrollAlign?: 'start' | 'center';
   variant?: 'wide' | 'portrait';
   sectionClassName?: string;
+  preloadAdjacentVideoCards?: number;
 }
 
 export function PreviewCarousel({
@@ -43,9 +44,12 @@ export function PreviewCarousel({
   desktopScrollAlign,
   variant = 'wide',
   sectionClassName,
+  preloadAdjacentVideoCards = 0,
 }: PreviewCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollSyncFrameRef = useRef<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<PreviewCard | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   const hasVideoItems = items.some((item) => item.type === 'video');
   const usePortraitCards =
     variant === 'portrait' ||
@@ -112,6 +116,7 @@ export function PreviewCarousel({
 
       container.scrollTo({ left: targetLeft, behavior: 'auto' });
       container.scrollLeft = targetLeft;
+      setActiveIndex(targetIndex);
     };
 
     const scheduleReset = () => {
@@ -164,6 +169,14 @@ export function PreviewCarousel({
     scrollAlign,
     variant,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollSyncFrameRef.current) {
+        window.cancelAnimationFrame(scrollSyncFrameRef.current);
+      }
+    };
+  }, []);
 
   const cardClassName =
     usePortraitCards
@@ -254,6 +267,46 @@ export function PreviewCarousel({
     container.scrollLeft += event.deltaY;
   };
 
+  const syncActiveIndex = () => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const cards = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-scroll-card]'),
+    );
+
+    if (cards.length === 0) {
+      return;
+    }
+
+    const currentLeft = container.scrollLeft;
+    const nextIndex = cards.reduce((closestIndex, card, index) => {
+      const closestCard = cards[closestIndex];
+      const currentDistance = Math.abs(getTargetScrollLeft(container, card) - currentLeft);
+      const closestDistance = Math.abs(
+        getTargetScrollLeft(container, closestCard) - currentLeft,
+      );
+
+      return currentDistance < closestDistance ? index : closestIndex;
+    }, 0);
+
+    setActiveIndex(nextIndex);
+  };
+
+  const handleScroll: UIEventHandler<HTMLDivElement> = () => {
+    if (scrollSyncFrameRef.current) {
+      window.cancelAnimationFrame(scrollSyncFrameRef.current);
+    }
+
+    scrollSyncFrameRef.current = window.requestAnimationFrame(() => {
+      syncActiveIndex();
+      scrollSyncFrameRef.current = null;
+    });
+  };
+
   return (
     <motion.section
       id={id}
@@ -276,6 +329,7 @@ export function PreviewCarousel({
             className={`hide-scrollbar overflow-x-auto overflow-y-hidden pb-2 snap-x ${
               resolvedScrollAlign === 'center' ? 'snap-mandatory' : 'snap-proximity'
             }`}
+            onScroll={handleScroll}
             onWheel={handleWheelScroll}
             style={{
               overflowAnchor: 'none',
@@ -290,12 +344,12 @@ export function PreviewCarousel({
                   resolvedScrollAlign === 'center' ? centeredPeekPadding : '0.25rem',
               }}
             >
-              {items.map((item) => (
-                <article
-                  key={item.id}
-                  data-scroll-card
-                  className={cardClassName}
-                >
+              {items.map((item, index) => (
+                  <article
+                    key={item.id}
+                    data-scroll-card
+                    className={cardClassName}
+                  >
                   <div className={aspectClassName}>
                     <div className="absolute inset-x-3 top-3 z-10">
                       <button
@@ -322,20 +376,25 @@ export function PreviewCarousel({
                       }}
                       tabIndex={0}
                       role="button"
-                      aria-label={`Abrir visualizacao de ${item.title}`}
+                      aria-label={`Abrir visualização de ${item.title}`}
                     >
-                      <AutoplayMedia
-                        type={item.type}
-                        src={item.src}
-                        poster={item.thumbnail}
-                        alt={item.title}
-                        className="h-full w-full"
-                        fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
+                        <AutoplayMedia
+                          type={item.type}
+                          src={item.src}
+                          poster={item.thumbnail}
+                          alt={item.title}
+                          className="h-full w-full"
+                          fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
                         showVolumeToggle
-                      />
+                        forceActivateVideo={
+                          item.type === 'video' &&
+                          preloadAdjacentVideoCards > 0 &&
+                          Math.abs(index - activeIndex) <= preloadAdjacentVideoCards
+                        }
+                        />
+                      </div>
                     </div>
-                  </div>
-                </article>
+                  </article>
               ))}
 
               <div data-scroll-card className={ctaCardClassName}>
@@ -344,11 +403,11 @@ export function PreviewCarousel({
                     <h3 className={ctaTitleClassName}>Entrar no Grupo</h3>
                     <p className={ctaDescriptionClassName}>
                       {
-                        'Entre no grupo VIP e tenha acesso a conte\u00fados exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, CloseFans e Telegram VIP.'
+                        'Entre no grupo VIP e tenha acesso a conteúdos exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, CloseFans e Telegram VIP.'
                       }
                       <br />
                       <br />
-                      {'Tudo organizado em categorias para facilitar sua experi\u00eancia.'}
+                      {'Tudo organizado em categorias para facilitar sua experiência.'}
                     </p>
                   </div>
 
@@ -360,7 +419,7 @@ export function PreviewCarousel({
                       scrollTargetId="cta-final"
                     />
                     <span className="text-center text-[10px] font-medium uppercase tracking-[0.16em] text-white/45 sm:text-[11px] sm:tracking-[0.18em]">
-                      {'Aprova\u00e7\u00e3o Imediata'}
+                      {'Aprovação Imediata'}
                     </span>
                   </div>
                 </div>

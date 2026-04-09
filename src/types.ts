@@ -15,6 +15,7 @@ export interface ModelMedia {
   subtitle: string;
   thumbnail: string;
   src?: string;
+  favorite?: boolean;
 }
 
 export interface ModelFullContentVideo {
@@ -92,6 +93,8 @@ export interface UploadAssetOptions {
   modelName?: string;
   target?: HeroBackgroundTarget;
   mediaType?: MediaType;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
 }
 
 export interface UploadAssetProgress {
@@ -105,6 +108,7 @@ export interface UploadAssetResult {
   filename: string;
   mimeType: string;
   size: number;
+  thumbnailUrl?: string;
 }
 
 export interface TelegramCacheWarmFailure {

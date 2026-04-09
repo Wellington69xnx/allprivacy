@@ -10,11 +10,11 @@ const perks = [
   'TelegramVIP',
   'Anal',
   'Amador',
-  'Em P\u00fablico',
+  'Em Público',
   'Novinha +18',
   'Vazados',
   'Corno/HotWife',
-  'C\u00e2mera Escondida',
+  'Câmera Escondida',
   'Gozada na Boca',
   'GangBang',
   'Agressivo',
@@ -33,7 +33,7 @@ export function FinalGroupCtaCard({ ctaHref, buttonRef }: FinalGroupCtaCardProps
       </h2>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
         {
-          'Entre no nosso grupo VIP agora mesmo e tenha acesso imediato e completo a todo o conte\u00fado.'
+          'Entre no nosso grupo VIP agora mesmo e tenha acesso imediato e completo a todo o conteúdo.'
         }
       </p>
 

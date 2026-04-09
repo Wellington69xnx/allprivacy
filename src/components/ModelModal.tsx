@@ -8,15 +8,101 @@ import { TelegramCTA } from './TelegramCTA';
 
 interface ModelModalProps {
   model: ModelProfile | null;
+  models: ModelProfile[];
   onClose: () => void;
   ctaHref: string;
 }
 
-export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
+interface GhostPreviewCard {
+  id: string;
+  image: string;
+  aspectClassName: string;
+}
+
+function buildGhostPreviewCards(model: ModelProfile | null, models: ModelProfile[]) {
+  if (!model) {
+    return [] as GhostPreviewCard[];
+  }
+
+  const sourceModels = models.filter((entry) => entry.id !== model.id);
+  const galleryPool = sourceModels.flatMap((entry) =>
+    entry.gallery
+      .filter((item) => item.type === 'image' && item.thumbnail)
+      .map((item) => ({
+        image: item.thumbnail,
+        aspectClassName: 'aspect-[4/5]',
+        sourceKey: `${entry.id}-${item.id}`,
+      })),
+  );
+  const fallbackPool = sourceModels.flatMap((entry) => [
+    {
+      image: entry.coverImage,
+      aspectClassName: 'aspect-[4/5]',
+      sourceKey: `${entry.id}-cover`,
+    },
+    {
+      image: entry.profileImage,
+      aspectClassName: 'aspect-[4/5]',
+      sourceKey: `${entry.id}-profile`,
+    },
+  ]);
+  const imagePool = [...galleryPool, ...fallbackPool]
+    .filter((item) => item.image)
+    .filter(
+      (item, index, items) =>
+        items.findIndex((candidate) => candidate.image === item.image) === index,
+    );
+
+  if (imagePool.length === 0) {
+    return [] as GhostPreviewCard[];
+  }
+
+  const ghostCount = Math.min(12, imagePool.length);
+
+  return Array.from({ length: ghostCount }, (_, index) => {
+    const source = imagePool[index % imagePool.length];
+
+    return {
+      id: `ghost-preview-${model.id}-${index}-${source.sourceKey}`,
+      image: source.image,
+      aspectClassName: source.aspectClassName,
+    };
+  });
+}
+
+export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadMoreTimeoutRef = useRef<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const [ghostRevealCount, setGhostRevealCount] = useState(2);
+  const [ghostRevealClicks, setGhostRevealClicks] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const syncViewport = () => {
+      setIsDesktopViewport(mediaQuery.matches);
+    };
+
+    syncViewport();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', syncViewport);
+      return () => {
+        mediaQuery.removeEventListener('change', syncViewport);
+      };
+    }
+
+    mediaQuery.addListener(syncViewport);
+    return () => {
+      mediaQuery.removeListener(syncViewport);
+    };
+  }, []);
 
   useEffect(() => {
     if (!model) {
@@ -43,6 +129,8 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
     if (!model) {
       setVisibleCount(0);
       setIsLoadingMore(false);
+      setGhostRevealCount(2);
+      setGhostRevealClicks(0);
       return;
     }
 
@@ -57,6 +145,8 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
 
     setVisibleCount(Math.min(model.gallery.length, initialCount));
     setIsLoadingMore(false);
+    setGhostRevealCount(typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? 3 : 2);
+    setGhostRevealClicks(0);
 
     if (loadMoreTimeoutRef.current) {
       window.clearTimeout(loadMoreTimeoutRef.current);
@@ -88,11 +178,21 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
     () => (model ? model.gallery.slice(0, visibleCount) : []),
     [model, visibleCount],
   );
+  const ghostPreviewCards = useMemo(() => buildGhostPreviewCards(model, models), [model, models]);
 
   const skeletonCount =
     model && isLoadingMore && visibleCount < model.gallery.length
       ? Math.min(4, model.gallery.length - visibleCount)
       : 0;
+  const showGhostPreviewCards =
+    Boolean(model) && visibleCount >= (model?.gallery.length ?? 0) && ghostPreviewCards.length > 0;
+  const ghostRevealStep = isDesktopViewport ? 3 : 2;
+  const visibleGhostCards = useMemo(
+    () => ghostPreviewCards.slice(0, Math.min(ghostPreviewCards.length, ghostRevealCount)),
+    [ghostPreviewCards, ghostRevealCount],
+  );
+  const canRevealMoreGhostCards =
+    ghostRevealClicks < 5 && visibleGhostCards.length < ghostPreviewCards.length;
 
   const loadMore = () => {
     if (!model || isLoadingMore || visibleCount >= model.gallery.length) {
@@ -136,7 +236,7 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-label={`Conte\u00fado de ${model.name}`}
+              aria-label={`Conteúdo de ${model.name}`}
               className="relative h-[min(95dvh,900px)] w-screen max-w-full overflow-hidden rounded-t-[32px] border border-white/10 bg-[#09090c]/95 shadow-2xl md:h-[min(82vh,780px)] md:w-[min(1180px,95vw)] md:rounded-[32px]"
               initial={{ opacity: 0, y: 40, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -198,7 +298,7 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
                 <div className="p-5 pb-32 md:p-8">
                   {model.gallery.length === 0 ? (
                     <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 text-sm text-zinc-300">
-                      {'Essa modelo ainda n\u00e3o tem pr\u00e9vias cadastradas no painel admin.'}
+                      {'Essa modelo ainda não tem prévias cadastradas no painel admin.'}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -244,6 +344,67 @@ export function ModelModal({ model, onClose, ctaHref }: ModelModalProps) {
                           </div>
                         </article>
                       ))}
+
+                      {showGhostPreviewCards ? (
+                        <div className="relative col-span-full">
+                          <div className={`grid gap-3 ${isDesktopViewport ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                            {visibleGhostCards.map((item, index) => {
+                              const isTailCard =
+                                index >= Math.max(0, visibleGhostCards.length - (isDesktopViewport ? 3 : 2));
+
+                              return (
+                                <article
+                                  key={`${item.id}-${isDesktopViewport ? 'desktop' : 'mobile'}`}
+                                  aria-hidden="true"
+                                  className={`relative overflow-hidden rounded-[24px] bg-black/90 blur-[1.4px] saturate-75 ${
+                                    isTailCard ? 'opacity-52' : 'opacity-72'
+                                  }`}
+                                >
+                                  <div className={`relative overflow-hidden bg-zinc-950 ${item.aspectClassName}`}>
+                                    <img
+                                      src={item.image}
+                                      alt=""
+                                      className="h-full w-full scale-110 object-cover blur-[10px]"
+                                      loading="lazy"
+                                    />
+                                    <div
+                                      className={`absolute inset-0 ${
+                                        isTailCard ? 'bg-black/54' : 'bg-black/34'
+                                      }`}
+                                    />
+                                    <div className="absolute inset-x-4 bottom-4 space-y-2">
+                                      <div className="h-2.5 w-2/3 rounded-full bg-white/12" />
+                                      <div className="h-2.5 w-1/2 rounded-full bg-white/10" />
+                                    </div>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!canRevealMoreGhostCards) {
+                                  if (typeof window !== 'undefined') {
+                                    window.location.href = ctaHref;
+                                  }
+                                  return;
+                                }
+
+                                setGhostRevealClicks((current) => current + 1);
+                                setGhostRevealCount((current) =>
+                                  Math.min(ghostPreviewCards.length, current + ghostRevealStep),
+                                );
+                              }}
+                              className="pointer-events-auto inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-white shadow-[0_14px_36px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:bg-white/[0.1]"
+                            >
+                              {'Ver mais ↓'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>

@@ -335,14 +335,14 @@ export function ModelVideoPage({
               href={getHomePath()}
               className="absolute -left-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/50 transition hover:text-white/75 sm:hidden"
             >
-              <span aria-hidden="true">{'\u2039'}</span>
+              <span aria-hidden="true">{'‹'}</span>
               <span>{'Página inicial'}</span>
             </a>
             <a
               href={getHomePath()}
               className="absolute left-4 top-1/2 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75 sm:inline-flex md:text-[13px]"
             >
-              <span aria-hidden="true">{'\u2039'}</span>
+              <span aria-hidden="true">{'‹'}</span>
               <span>{'Página inicial'}</span>
             </a>
             <div className="sm:hidden">

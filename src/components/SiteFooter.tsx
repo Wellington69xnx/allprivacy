@@ -40,7 +40,7 @@ export function SiteFooter() {
             AllPrivacy.site
           </a>
           <p className="mt-1 text-sm text-zinc-400">
-            {'Entrada discreta e acesso organizado em um s\u00f3 lugar.'}
+            {'Entrada discreta e acesso organizado em um só lugar.'}
           </p>
           </div>
 

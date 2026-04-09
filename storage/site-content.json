@@ -1,36 +1,36 @@
 {
   "models": [
     {
-      "id": "model-1773819961316-yl6jm8eg",
-      "name": "Mel Breia",
-      "handle": "@melbreia",
-      "tagline": "Loira linda",
+      "id": "model-aea75227-6250-4507-9f2a-3728c951b7e4",
+      "name": "Agata Leal",
+      "handle": "@allprivacy.site",
+      "tagline": "",
       "hiddenOnHome": false,
-      "accentFrom": "#dc2626",
-      "accentTo": "#7e22ce",
-      "profileImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20perfil%204.png",
-      "coverImage": "/uploads/mel-breia/Mel%20Breia%20foto%20de%20capa%204.png",
+      "accentFrom": "#f43f5e",
+      "accentTo": "#9333ea",
+      "profileImage": "/uploads/agata-leal/Agata%20Leal%20foto%20de%20perfil.png",
+      "coverImage": "/uploads/agata-leal/Agata%20Leal%20foto%20de%20capa.png",
       "fullContentVideos": [
         {
-          "id": "full-content-d91b6167-f818-4a5c-882e-56f06d33a2a6",
+          "id": "full-content-963ccc73-d2b9-4364-99eb-41c4eacd9b03",
           "title": "Conteudo completo 1",
-          "routeToken": "12f0a488ba10",
-          "videoUrl": "/uploads/full-content/mel-breia/Mel%20Breia%20conteudo%20completo%203.mp4",
-          "views": 1,
+          "routeToken": "04e6c4d5a3b2",
+          "videoUrl": "/uploads/full-content/agata-leal/Agata%20Leal%20conteudo%20completo%201.mp4",
+          "views": 0,
           "comments": []
         },
         {
-          "id": "full-content-d35c3c75-686c-400e-a92b-29825bee25db",
+          "id": "full-content-3ca0f31f-595a-492b-802c-21ab0fd446f5",
           "title": "Conteudo completo 2",
-          "routeToken": "dc18ccc6f68e",
-          "videoUrl": "/uploads/full-content/mel-breia/Mel%20Breia%20conteudo%20completo%204.mp4",
-          "views": 11,
+          "routeToken": "8b4126cf7db1",
+          "videoUrl": "/uploads/full-content/agata-leal/Agata%20Leal%20conteudo%20completo%202.mp4",
+          "views": 1,
           "comments": [
             {
-              "id": "full-comment-5565e32f-5559-4094-acd4-bbbfac0e1bc9",
-              "name": "wellington",
-              "message": "teste",
-              "createdAt": "2026-04-01T00:51:31.615Z",
+              "id": "full-comment-aba448fa-a48f-445b-bfd6-e35a6e2f121e",
+              "name": "Carlos",
+              "message": "que mulher gostosa",
+              "createdAt": "2026-04-07T07:20:40.568Z",
               "likes": 1,
               "likedBy": [
                 "b01320cd7301b72ec7e601f3ef78d123"
@@ -41,256 +41,384 @@
       ],
       "gallery": [
         {
-          "id": "media-recovered-mel-video-2",
-          "type": "video",
-          "title": "Previa 2",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2012.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%2012.mp4"
-        },
-        {
-          "id": "media-recovered-mel-video-3",
-          "type": "video",
-          "title": "Previa 3",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2013.mov",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%2013.mov"
-        },
-        {
-          "id": "media-recovered-mel-image-2",
-          "type": "image",
-          "title": "Previa 2",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2017.png"
-        },
-        {
-          "id": "media-recovered-mel-image-4",
-          "type": "image",
-          "title": "Previa 4",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2018.png"
-        },
-        {
-          "id": "media-recovered-mel-image-5",
-          "type": "image",
-          "title": "Previa 5",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2019.jpeg"
-        },
-        {
-          "id": "media-recovered-mel-image-6",
-          "type": "image",
-          "title": "Previa 6",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2020.jpg"
-        },
-        {
-          "id": "media-recovered-mel-image-7",
-          "type": "image",
-          "title": "Previa 7",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2021.jpeg"
-        },
-        {
-          "id": "media-recovered-mel-image-8",
-          "type": "image",
-          "title": "Previa 8",
-          "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20imagem%2022.jpg"
-        },
-        {
-          "id": "media-43a2953b-61c4-425d-84c4-d2779bfae84a",
+          "id": "media-991d36a4-fbfe-4bf1-8f24-b91015c57d79",
           "type": "video",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2018.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%2018.mp4"
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20video%202.thumb.jpg",
+          "src": "/uploads/agata-leal/Agata%20Leal%20video%202.mp4",
+          "favorite": false
         },
         {
-          "id": "media-e7063c5d-5886-48a7-bd5c-c3829f020e4f",
+          "id": "media-8af38ef3-5ce6-4e46-94af-fe16471007e5",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20imagem%201.png",
+          "favorite": false
+        },
+        {
+          "id": "media-87958e81-437f-4748-943c-9bc69c84ba24",
           "type": "video",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/mel-breia/Mel%20Breia%20video%2019.mp4",
-          "src": "/uploads/mel-breia/Mel%20Breia%20video%2019.mp4"
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20video%203.thumb.jpg",
+          "src": "/uploads/agata-leal/Agata%20Leal%20video%203.mp4",
+          "favorite": true
+        },
+        {
+          "id": "media-f389b18f-c618-4e04-9254-1537584cd36e",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20video%204.thumb.jpg",
+          "src": "/uploads/agata-leal/Agata%20Leal%20video%204.mp4",
+          "favorite": true
+        },
+        {
+          "id": "media-fefb059d-586a-4b16-8482-323bd2ce96a0",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20video%205.thumb.jpg",
+          "src": "/uploads/agata-leal/Agata%20Leal%20video%205.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-da2004ce-879c-4850-8957-b4c988903a1f",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/agata-leal/Agata%20Leal%20imagem%202.jpeg",
+          "favorite": false
         }
       ]
     },
     {
-      "id": "model-1773821913337-b6k1xofx",
-      "name": "Moises Godinho",
-      "handle": "@moisesgodinho",
-      "tagline": "Moises ama dar esse cuzao dele",
+      "id": "model-894d7016-a1bc-46e6-be56-f68b62eaee63",
+      "name": "Boquete Babado",
+      "handle": "@allprivacy.site",
+      "tagline": "",
       "hiddenOnHome": false,
       "accentFrom": "#dc2626",
       "accentTo": "#7e22ce",
-      "profileImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20perfil%204.png",
-      "coverImage": "/uploads/moises-godinho/Moises%20Godinho%20foto%20de%20capa%204.png",
+      "profileImage": "/uploads/boquete-babado/Boquete%20Babado%20foto%20de%20perfil.png",
+      "coverImage": "/uploads/boquete-babado/Boquete%20Babado%20foto%20de%20capa.png",
       "fullContentVideos": [],
       "gallery": [
         {
-          "id": "media-recovered-moises-video-1",
+          "id": "media-28f4c55a-8545-4de7-9f94-e7fa5b1669e9",
           "type": "video",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%208.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%208.mp4"
+          "thumbnail": "/uploads/boquete-babado/Boquete%20Babado%20video%201.thumb.jpg",
+          "src": "/uploads/boquete-babado/Boquete%20Babado%20video%201.mp4",
+          "favorite": true
         },
         {
-          "id": "media-recovered-moises-video-2",
+          "id": "media-94f3c333-174f-47f3-b73f-db32d9f0edb4",
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%209.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%209.mp4"
+          "thumbnail": "/uploads/boquete-babado/Boquete%20Babado%20video%202.thumb.jpg",
+          "src": "/uploads/boquete-babado/Boquete%20Babado%20video%202.mp4",
+          "favorite": true
         },
         {
-          "id": "media-recovered-moises-video-3",
+          "id": "media-f3ba3872-24be-4185-b58f-b546babad4f3",
           "type": "video",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20video%2010.mp4",
-          "src": "/uploads/moises-godinho/Moises%20Godinho%20video%2010.mp4"
+          "thumbnail": "/uploads/boquete-babado/Boquete%20Babado%20video%203.thumb.jpg",
+          "src": "/uploads/boquete-babado/Boquete%20Babado%20video%203.mp4",
+          "favorite": true
         },
         {
-          "id": "media-recovered-moises-image-1",
+          "id": "media-eee1b5f3-4024-428a-b20c-155c56976800",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/boquete-babado/Boquete%20Babado%20video%204.thumb.jpg",
+          "src": "/uploads/boquete-babado/Boquete%20Babado%20video%204.mp4",
+          "favorite": true
+        }
+      ]
+    },
+    {
+      "id": "model-a3005edf-ae89-47a2-8931-62bd2f7cc9bd",
+      "name": "Antonia Valadão",
+      "handle": "@allprivacy.site",
+      "tagline": "",
+      "hiddenOnHome": false,
+      "accentFrom": "#ff2056",
+      "accentTo": "#8b5cf6",
+      "profileImage": "/uploads/antonia-valadao/Antonia%20Valadao%20foto%20de%20perfil.png",
+      "coverImage": "/uploads/antonia-valadao/Antonia%20Valadao%20foto%20de%20capa.png",
+      "fullContentVideos": [],
+      "gallery": [
+        {
+          "id": "media-c9afff46-b030-426d-a70d-ce7302154c9a",
           "type": "image",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%2010.png"
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%201.png",
+          "favorite": false
         },
         {
-          "id": "media-recovered-moises-image-2",
+          "id": "media-2dc1a68f-e91e-4fba-881b-a4e19aaa6e50",
           "type": "image",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%2011.png"
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%202.png",
+          "favorite": false
         },
         {
-          "id": "media-recovered-moises-image-3",
+          "id": "media-9d94405b-ec1f-4517-bddf-2f4dd26e4329",
           "type": "image",
           "title": "Previa 3",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%2012.png"
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%203.png",
+          "favorite": false
         },
         {
-          "id": "media-recovered-moises-image-4",
+          "id": "media-105a40fa-d781-4b8b-ac26-445e06d7a194",
           "type": "image",
           "title": "Previa 4",
           "subtitle": "",
-          "thumbnail": "/uploads/moises-godinho/Moises%20Godinho%20imagem%2013.jpeg"
-        }
-      ]
-    },
-    {
-      "id": "model-34bd9e55-35a0-42e3-84ea-6915f7d5ecce",
-      "name": "Yan",
-      "handle": "yangregory",
-      "tagline": "",
-      "hiddenOnHome": false,
-      "accentFrom": "#f43f5e",
-      "accentTo": "#9333ea",
-      "profileImage": "/uploads/yan/Yan%20foto%20de%20perfil%204.jpg",
-      "coverImage": "/uploads/yan/Yan%20foto%20de%20capa%204.jpeg",
-      "fullContentVideos": [],
-      "gallery": [
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%204.png",
+          "favorite": false
+        },
         {
-          "id": "media-recovered-yan-video-1",
+          "id": "media-d259003e-8bca-4e03-8485-9b4320edf6c7",
+          "type": "image",
+          "title": "Previa 5",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%205.png",
+          "favorite": false
+        },
+        {
+          "id": "media-5c303b36-a6b6-4812-a701-33b9c392b26d",
+          "type": "image",
+          "title": "Previa 6",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%206.png",
+          "favorite": false
+        },
+        {
+          "id": "media-0759b55c-4229-4035-b248-cbc8a68da67a",
           "type": "video",
           "title": "Previa 1",
           "subtitle": "",
-          "thumbnail": "/uploads/yan/Yan%20video%206.mp4",
-          "src": "/uploads/yan/Yan%20video%206.mp4"
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%201.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%201.mp4",
+          "favorite": false
         },
         {
-          "id": "media-recovered-yan-video-2",
+          "id": "media-400a731b-c3e7-48ee-bb45-4b6dd25f9d28",
           "type": "video",
           "title": "Previa 2",
           "subtitle": "",
-          "thumbnail": "/uploads/yan/Yan%20video%207.mp4",
-          "src": "/uploads/yan/Yan%20video%207.mp4"
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%202.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%202.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-6d2cd4d4-0e04-40fa-87a5-d04984b97cb1",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%203.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%203.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-3a83cbf5-865b-4538-bb62-de1e17a85012",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%207.jpg",
+          "favorite": true
+        },
+        {
+          "id": "media-48c45b7f-c814-497b-8796-56a5f7438911",
+          "type": "image",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%208.png",
+          "favorite": true
+        },
+        {
+          "id": "media-d8c8733f-b8ad-4da4-ae62-b25955cbd77f",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%204.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%204.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-18994ae1-b732-43b7-997e-1dad7e7e010f",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%205.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%205.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-0462b90c-cb91-4126-8b68-77d63f4e5788",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%209.png",
+          "favorite": false
+        },
+        {
+          "id": "media-7a3194f8-e59b-4ef5-9832-7e3e892c8e6a",
+          "type": "video",
+          "title": "Previa 2",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%206.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%206.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-6d426741-262a-4478-8436-61fd448db77b",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%207.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%207.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-5a3942a7-09b2-47c1-8058-3388fa5124ec",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%208.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%208.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-9671e849-949d-43cb-801f-d7c52bfd3f3d",
+          "type": "video",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20video%209.thumb.jpg",
+          "src": "/uploads/antonia-valadao/Antonia%20Valadao%20video%209.mp4",
+          "favorite": false
+        },
+        {
+          "id": "media-9603242b-ee8b-4cc8-a2f9-3c14df1e8f58",
+          "type": "image",
+          "title": "Previa 1",
+          "subtitle": "",
+          "thumbnail": "/uploads/antonia-valadao/Antonia%20Valadao%20imagem%2010.png",
+          "favorite": false
         }
       ]
-    },
-    {
-      "id": "model-a7824651-e53c-4c28-804d-bdc2d06d737c",
-      "name": "Bruno Souza",
-      "handle": "brunosouza",
-      "tagline": "da o cu e chupa",
-      "hiddenOnHome": false,
-      "accentFrom": "#ef4444",
-      "accentTo": "#7c3aed",
-      "profileImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20perfil%204.jpg",
-      "coverImage": "/uploads/bruno-souza/Bruno%20Souza%20foto%20de%20capa%204.jpeg",
-      "fullContentVideos": [],
-      "gallery": []
-    },
-    {
-      "id": "model-01933fcc-8daf-4776-b976-96d540984be8",
-      "name": "carlos eduardo",
-      "handle": "carloseduardo",
-      "tagline": "chuopa e chupa",
-      "hiddenOnHome": false,
-      "accentFrom": "#ef4444",
-      "accentTo": "#7c3aed",
-      "profileImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20perfil%204.jpeg",
-      "coverImage": "/uploads/carlos-eduardo/carlos%20eduardo%20foto%20de%20capa%204.jpeg",
-      "fullContentVideos": [],
-      "gallery": []
     }
   ],
-  "groupProofItems": [
-    {
-      "id": "group-58a9cef0-5147-485e-a89c-ecb1b8be2312",
-      "title": "Print do grupo",
-      "subtitle": "",
-      "image": "/uploads/group-proofs/print%20grupo%201.jpg"
-    },
-    {
-      "id": "group-217dd21a-a761-4fb2-9098-45b0582452c1",
-      "title": "Print do grupo",
-      "subtitle": "",
-      "image": "/uploads/group-proofs/print%20grupo%202.png"
-    },
-    {
-      "id": "group-f04014a4-fae2-4995-8f3d-df76fc5a295e",
-      "title": "Print do grupo",
-      "subtitle": "",
-      "image": "/uploads/group-proofs/print%20grupo%203.jpeg"
-    }
-  ],
+  "groupProofItems": [],
   "heroBackgrounds": {
     "mobile": [
       {
-        "id": "hero-recovered-mobile-1",
+        "id": "hero-9acd4a48-dbe1-4f39-9d58-c66417bee239",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%208.png",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2011.png",
         "target": "mobile"
       },
       {
-        "id": "hero-recovered-mobile-2",
+        "id": "hero-3051373e-22ec-4feb-8f7e-a6855cbcb3c5",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%209.png",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2012.png",
         "target": "mobile"
       },
       {
-        "id": "hero-recovered-mobile-3",
+        "id": "hero-b233776c-c69e-42d6-8c3f-2c1c3f26bdba",
         "title": "",
-        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2010.jpg",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2013.jpg",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-64493440-716f-476b-a4e9-34ec108da72f",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2014.jpg",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-cd1727fb-87b2-450a-9b85-ce6451d17f53",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2016.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-abcbe7cd-141e-4321-8bd3-6933c1527d2c",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2017.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-239b866f-65aa-4ad4-ac91-2e366c090d33",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2018.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-82cc30cd-d2a6-4a15-bad8-2129b553a4c3",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2019.png",
+        "target": "mobile"
+      },
+      {
+        "id": "hero-9c6c839a-14b1-4184-93d8-b6c2a4ae04ff",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/mobile/background%20mobile%2021.png",
         "target": "mobile"
       }
     ],
     "desktop": [
       {
-        "id": "hero-recovered-desktop-1",
+        "id": "hero-fbec7e08-c3d8-4685-b72a-08a1e6177da8",
         "title": "",
-        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%206.jpeg",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%209.png",
         "target": "desktop"
       },
       {
-        "id": "hero-recovered-desktop-2",
+        "id": "hero-ca002912-3b52-44cc-bc56-a55bd39c4ab5",
         "title": "",
-        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%207.jpeg",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2010.png",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-6a7660d6-2cf3-4bc7-adcc-c0fea87f8a71",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2011.png",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-285a4a14-d4ef-4dda-9f69-867eae387cdd",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2012.png",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-187574c6-235c-4759-a3d2-0055b320a255",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2013.png",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-7103dffe-0512-40ac-8ae2-bb1feefeffdf",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2014.png",
+        "target": "desktop"
+      },
+      {
+        "id": "hero-455593cf-76f9-4023-a9fd-4d77652a8899",
+        "title": "",
+        "image": "/uploads/hero-backgrounds/desktop/background%20desktop%2015.png",
         "target": "desktop"
       }
     ]

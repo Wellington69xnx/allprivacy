@@ -217,3 +217,14 @@ export function HeartIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function StarIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="m12 3.8 2.55 5.17 5.7.83-4.12 4.02.97 5.67L12 16.8 6.9 19.5l.98-5.67L3.75 9.8l5.7-.83L12 3.8Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}

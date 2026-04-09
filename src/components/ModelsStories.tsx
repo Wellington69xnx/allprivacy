@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useMemo } from 'react';
 import { scrollToTarget } from '../lib/scrollToTarget';
 import type { ModelProfile } from '../types';
 import { SectionHeader } from './SectionHeader';
@@ -77,7 +78,7 @@ export function ModelsStories({
   onSelect,
   ctaTargetId = 'cta-final',
 }: ModelsStoriesProps) {
-  const ghostCards = buildGhostStoryCards(models);
+  const ghostCards = useMemo(() => buildGhostStoryCards(models), [models]);
 
   return (
     <motion.section
@@ -100,23 +101,18 @@ export function ModelsStories({
       ) : (
         <div className="relative mt-6">
           <div
-            className={`grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] justify-items-center gap-x-2 gap-y-4 sm:flex sm:flex-wrap sm:justify-start sm:gap-x-3 sm:gap-y-5 ${
+            className={`grid grid-cols-4 justify-items-center gap-x-3 gap-y-6 sm:flex sm:flex-wrap sm:justify-start sm:gap-x-3 sm:gap-y-5 ${
               ghostCards.length > 0
                 ? 'max-h-[412px] overflow-hidden sm:max-h-[436px] md:max-h-[456px]'
                 : ''
             }`}
           >
-            {models.map((model, index) => (
-              <motion.button
+            {models.map((model) => (
+              <button
                 key={model.id}
                 type="button"
                 onClick={() => onSelect(model)}
-                initial={{ opacity: 0, y: 14 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.5 }}
-                transition={{ duration: 0.35, delay: index * 0.05 }}
-                whileTap={{ scale: 0.96 }}
-                className="flex w-full max-w-[76px] flex-col items-center text-center sm:w-[82px] sm:max-w-none md:w-[92px]"
+                className="flex w-full max-w-[78px] flex-col items-center text-center transition-transform duration-200 hover:-translate-y-0.5 active:scale-[0.97] sm:w-[82px] sm:max-w-none md:w-[92px]"
               >
                 <span
                   className="mx-auto flex h-[64px] w-[64px] items-center justify-center rounded-full p-[3px] shadow-glow sm:h-[74px] sm:w-[74px] md:h-[84px] md:w-[84px]"
@@ -133,23 +129,18 @@ export function ModelsStories({
                     />
                   </span>
                 </span>
-                <span className="mt-2 block truncate text-center text-[11px] font-semibold text-white sm:mt-3 sm:text-xs">
+                <span className="mt-2 block w-full truncate text-center text-[11px] font-semibold leading-tight text-white sm:mt-3 sm:text-xs">
                   {model.name}
                 </span>
-              </motion.button>
+              </button>
             ))}
 
             {ghostCards.map((card, index) => (
-              <motion.button
+              <button
                 key={card.id}
                 type="button"
                 onClick={() => scrollToTarget(ctaTargetId)}
-                initial={{ opacity: 0, y: 14 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.5 }}
-                transition={{ duration: 0.35, delay: Math.min(0.45, index * 0.02) }}
-                whileTap={{ scale: 0.96 }}
-                className={`relative flex w-full max-w-[76px] flex-col items-center text-center opacity-75 blur-[1.8px] saturate-75 sm:w-[82px] sm:max-w-none md:w-[92px] ${
+                className={`relative flex w-full max-w-[78px] flex-col items-center text-center opacity-75 blur-[1.8px] saturate-75 transition-transform duration-200 active:scale-[0.97] sm:w-[82px] sm:max-w-none md:w-[92px] ${
                   index >= Math.max(0, ghostCards.length - 4)
                     ? 'opacity-45'
                     : index >= Math.max(0, ghostCards.length - 8)
@@ -190,10 +181,10 @@ export function ModelsStories({
                     />
                   </span>
                 </span>
-                <span className="mt-2 block truncate text-center text-[11px] font-semibold text-white/35 blur-[0.8px] sm:mt-3 sm:text-xs md:text-white/45">
+                <span className="mt-2 block w-full truncate text-center text-[11px] font-semibold leading-tight text-white/35 blur-[0.8px] sm:mt-3 sm:text-xs md:text-white/45">
                   {card.label}
                 </span>
-              </motion.button>
+              </button>
             ))}
           </div>
 
@@ -205,7 +196,7 @@ export function ModelsStories({
                 whileTap={{ scale: 0.97 }}
                 className="min-h-11 rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-white shadow-[0_14px_36px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:bg-white/[0.1]"
               >
-                {'Ver mais \u2193'}
+                {'Ver mais ↓'}
               </motion.button>
             </div>
           ) : null}

@@ -174,7 +174,7 @@ export function TelegramProof({ items }: TelegramProofProps) {
         eyebrow="AllPrivacy.site"
         title={'Por dentro do grupo'}
         description={
-          'Todo conte\u00fado organizado por t\u00f3picos para melhorar sua experi\u00eancia'
+          'Todo conteúdo organizado por tópicos para melhorar sua experiência'
         }
       />
 

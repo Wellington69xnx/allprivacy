@@ -16,6 +16,8 @@ import type {
 
 const SITE_CONTENT_ENDPOINT = '/api/site-content';
 const UPLOAD_ENDPOINT = '/api/upload';
+const DELETE_ASSETS_ENDPOINT = '/api/admin/assets/delete';
+const TRIM_EXISTING_VIDEO_ENDPOINT = '/api/admin/video/trim-existing';
 const TELEGRAM_CACHE_WARM_ENDPOINT = '/api/admin/telegram-cache/warm-all';
 const TELEGRAM_CACHE_SINGLE_ENDPOINT = '/api/admin/telegram-cache/warm-one';
 const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v1';
@@ -39,6 +41,7 @@ interface MediaInput {
   subtitle: string;
   thumbnail: string;
   src?: string;
+  favorite?: boolean;
 }
 
 interface FullContentVideoInput {
@@ -109,6 +112,66 @@ function cloneDefaultContent(): SiteContent {
   return JSON.parse(JSON.stringify(defaultSiteContent)) as SiteContent;
 }
 
+function collectModelAssetUrls(model: ModelProfile) {
+  const assetUrls = new Set<string>();
+  const pushUrl = (value?: string) => {
+    const nextValue = String(value || '').trim();
+
+    if (!nextValue) {
+      return;
+    }
+
+    assetUrls.add(nextValue);
+  };
+
+  pushUrl(model.profileImage);
+  pushUrl(model.coverImage);
+
+  for (const item of model.gallery) {
+    pushUrl(item.thumbnail);
+    pushUrl(item.src);
+  }
+
+  for (const item of model.fullContentVideos || []) {
+    pushUrl(item.videoUrl);
+  }
+
+  return Array.from(assetUrls);
+}
+
+function collectSiteContentAssetUrls(siteContent: SiteContent) {
+  const assetUrls = new Set<string>();
+  const pushUrl = (value?: string) => {
+    const nextValue = String(value || '').trim();
+
+    if (!nextValue) {
+      return;
+    }
+
+    assetUrls.add(nextValue);
+  };
+
+  for (const model of siteContent.models) {
+    for (const assetUrl of collectModelAssetUrls(model)) {
+      pushUrl(assetUrl);
+    }
+  }
+
+  for (const item of siteContent.groupProofItems) {
+    pushUrl(item.image);
+  }
+
+  for (const item of siteContent.heroBackgrounds.mobile) {
+    pushUrl(item.image);
+  }
+
+  for (const item of siteContent.heroBackgrounds.desktop) {
+    pushUrl(item.image);
+  }
+
+  return Array.from(assetUrls);
+}
+
 function readCachedSiteContent() {
   if (typeof window === 'undefined') {
     return null;
@@ -152,6 +215,7 @@ function buildMediaItem(input: MediaInput) {
     subtitle: input.subtitle.trim(),
     thumbnail: nextThumbnail,
     src: input.type === 'video' ? input.src?.trim() || '' : undefined,
+    favorite: Boolean(input.favorite),
   };
 }
 
@@ -199,7 +263,7 @@ function appendUniqueMediaItems<T extends { type: MediaType; thumbnail?: string;
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const rawMessage = await response.text();
-    let nextMessage = rawMessage || 'Falha ao processar a requisi\u00e7\u00e3o.';
+  let nextMessage = rawMessage || 'Falha ao processar a requisição.';
 
     try {
       const parsed = JSON.parse(rawMessage) as { message?: string };
@@ -255,7 +319,7 @@ export function useSiteContent() {
         const fallback = cloneDefaultContent();
         siteContentRef.current = fallback;
         setSiteContent(fallback);
-        setError('N\u00e3o foi poss\u00edvel carregar o conte\u00fado salvo em disco.');
+        setError('Não foi possível carregar o conteúdo salvo em disco.');
       }
     } finally {
       setIsLoading(false);
@@ -287,7 +351,7 @@ export function useSiteContent() {
 
       return data.siteContent;
     } catch {
-      setError('N\u00e3o foi poss\u00edvel salvar o conte\u00fado no projeto.');
+      setError('Não foi possível salvar o conteúdo no projeto.');
       throw new Error('save_failed');
     } finally {
       setIsSaving(false);
@@ -333,6 +397,18 @@ export function useSiteContent() {
             formData.append('mediaType', options.mediaType);
           }
 
+          if (Number.isFinite(options.trimStartSeconds)) {
+            const trimStart = String(Math.max(0, Number(options.trimStartSeconds) || 0));
+            endpointUrl.searchParams.set('trimStartSeconds', trimStart);
+            formData.append('trimStartSeconds', trimStart);
+          }
+
+          if (Number.isFinite(options.trimEndSeconds)) {
+            const trimEnd = String(Math.max(0, Number(options.trimEndSeconds) || 0));
+            endpointUrl.searchParams.set('trimEndSeconds', trimEnd);
+            formData.append('trimEndSeconds', trimEnd);
+          }
+
           formData.append('file', file);
 
           const request = new XMLHttpRequest();
@@ -352,13 +428,13 @@ export function useSiteContent() {
           };
 
           request.onerror = () => {
-            setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
+      setError('Não foi possível enviar o arquivo para o projeto.');
             reject(new Error('upload_failed'));
           };
 
           request.onload = () => {
             if (request.status < 200 || request.status >= 300) {
-              setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
+      setError('Não foi possível enviar o arquivo para o projeto.');
               reject(new Error(request.responseText || 'upload_failed'));
               return;
             }
@@ -368,17 +444,64 @@ export function useSiteContent() {
               setError(null);
               resolve(parsed);
             } catch {
-              setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
+      setError('Não foi possível enviar o arquivo para o projeto.');
               reject(new Error('upload_failed'));
             }
           };
 
           request.send(formData);
         } catch {
-          setError('N\u00e3o foi poss\u00edvel enviar o arquivo para o projeto.');
+      setError('Não foi possível enviar o arquivo para o projeto.');
           reject(new Error('upload_failed'));
         }
       }),
+    [],
+  );
+
+  const removeUploadedAssets = useCallback(async (assetUrls: string[]) => {
+    const uniqueAssetUrls = Array.from(
+      new Set(
+        assetUrls
+          .map((assetUrl) => String(assetUrl || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (uniqueAssetUrls.length === 0) {
+      return;
+    }
+
+    const response = await fetch(DELETE_ASSETS_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        assetUrls: uniqueAssetUrls,
+      }),
+    });
+
+    await parseJsonResponse<{ ok: boolean }>(response);
+  }, []);
+
+  const trimExistingVideo = useCallback(
+    async (assetUrl: string, startSeconds: number, endSeconds: number) => {
+      const response = await fetch(TRIM_EXISTING_VIDEO_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          assetUrl,
+          trimStartSeconds: startSeconds,
+          trimEndSeconds: endSeconds,
+        }),
+      });
+
+      return parseJsonResponse<{ ok: boolean; assetUrl: string; thumbnailUrl?: string }>(response);
+    },
     [],
   );
 
@@ -458,13 +581,23 @@ export function useSiteContent() {
   );
 
   const removeModel = useCallback(
-    async (modelId: string) => {
+    async (modelId: string, options?: { deleteAssetFiles?: boolean }) => {
+      const targetModel = siteContent.models.find((model) => model.id === modelId);
+
+      if (!targetModel) {
+        return;
+      }
+
+      if (options?.deleteAssetFiles) {
+        await removeUploadedAssets(collectModelAssetUrls(targetModel));
+      }
+
       await updateSiteContent((current) => ({
         ...current,
         models: current.models.filter((model) => model.id !== modelId),
       }));
     },
-    [updateSiteContent],
+    [removeUploadedAssets, siteContent.models, updateSiteContent],
   );
 
   const addMediaToModel = useCallback(
@@ -513,7 +646,18 @@ export function useSiteContent() {
   );
 
   const removeMediaFromModel = useCallback(
-    async (modelId: string, mediaId: string) => {
+    async (modelId: string, mediaId: string, options?: { deleteAssetFiles?: boolean }) => {
+      const targetModel = siteContent.models.find((model) => model.id === modelId);
+      const targetItem = targetModel?.gallery.find((item) => item.id === mediaId);
+
+      if (!targetItem) {
+        return;
+      }
+
+      if (options?.deleteAssetFiles) {
+        await removeUploadedAssets([targetItem.thumbnail, targetItem.src || '']);
+      }
+
       await updateSiteContent((current) => ({
         ...current,
         models: current.models.map((model) => {
@@ -524,6 +668,32 @@ export function useSiteContent() {
           return {
             ...model,
             gallery: model.gallery.filter((item) => item.id !== mediaId),
+          };
+        }),
+      }));
+    },
+    [removeUploadedAssets, siteContent.models, updateSiteContent],
+  );
+
+  const toggleModelMediaFavorite = useCallback(
+    async (modelId: string, mediaId: string) => {
+      await updateSiteContent((current) => ({
+        ...current,
+        models: current.models.map((model) => {
+          if (model.id !== modelId) {
+            return model;
+          }
+
+          return {
+            ...model,
+            gallery: model.gallery.map((item) =>
+              item.id === mediaId
+                ? {
+                    ...item,
+                    favorite: !Boolean(item.favorite),
+                  }
+                : item,
+            ),
           };
         }),
       }));
@@ -568,7 +738,18 @@ export function useSiteContent() {
   );
 
   const removeModelFullContentVideo = useCallback(
-    async (modelId: string, contentId: string) => {
+    async (modelId: string, contentId: string, options?: { deleteAssetFiles?: boolean }) => {
+      const targetModel = siteContent.models.find((model) => model.id === modelId);
+      const targetItem = (targetModel?.fullContentVideos || []).find((item) => item.id === contentId);
+
+      if (!targetItem) {
+        return;
+      }
+
+      if (options?.deleteAssetFiles) {
+        await removeUploadedAssets([targetItem.videoUrl]);
+      }
+
       await updateSiteContent((current) => ({
         ...current,
         models: current.models.map((model) => {
@@ -585,7 +766,7 @@ export function useSiteContent() {
         }),
       }));
     },
-    [updateSiteContent],
+    [removeUploadedAssets, siteContent.models, updateSiteContent],
   );
 
   const removeModelFullContentComment = useCallback(
@@ -653,7 +834,17 @@ export function useSiteContent() {
   );
 
   const removeHeroBackground = useCallback(
-    async (target: HeroBackgroundTarget, itemId: string) => {
+    async (target: HeroBackgroundTarget, itemId: string, options?: { deleteAssetFiles?: boolean }) => {
+      const targetItem = siteContent.heroBackgrounds[target].find((item) => item.id === itemId);
+
+      if (!targetItem) {
+        return;
+      }
+
+      if (options?.deleteAssetFiles) {
+        await removeUploadedAssets([targetItem.image]);
+      }
+
       await updateSiteContent((current) => ({
         ...current,
         heroBackgrounds: {
@@ -662,22 +853,36 @@ export function useSiteContent() {
         },
       }));
     },
-    [updateSiteContent],
+    [removeUploadedAssets, siteContent.heroBackgrounds, updateSiteContent],
   );
 
   const removeGroupProofItem = useCallback(
-    async (itemId: string) => {
+    async (itemId: string, options?: { deleteAssetFiles?: boolean }) => {
+      const targetItem = siteContent.groupProofItems.find((item) => item.id === itemId);
+
+      if (!targetItem) {
+        return;
+      }
+
+      if (options?.deleteAssetFiles) {
+        await removeUploadedAssets([targetItem.image]);
+      }
+
       await updateSiteContent((current) => ({
         ...current,
         groupProofItems: current.groupProofItems.filter((item) => item.id !== itemId),
       }));
     },
-    [updateSiteContent],
+    [removeUploadedAssets, siteContent.groupProofItems, updateSiteContent],
   );
 
-  const clearSiteContent = useCallback(async () => {
+  const clearSiteContent = useCallback(async (options?: { deleteAssetFiles?: boolean }) => {
+    if (options?.deleteAssetFiles) {
+      await removeUploadedAssets(collectSiteContentAssetUrls(siteContent));
+    }
+
     await persistSiteContent(cloneDefaultContent());
-  }, [persistSiteContent]);
+  }, [persistSiteContent, removeUploadedAssets, siteContent]);
 
   const runTelegramMediaCacheJob = useCallback(async (
     mode: TelegramCacheJobMode,
@@ -712,7 +917,7 @@ export function useSiteContent() {
 
     if (currentStatus.state === 'failed') {
       throw new Error(
-        currentStatus.message || 'Falha ao enviar as m\u00eddias para cache do Telegram.',
+        currentStatus.message || 'Falha ao enviar as mídias para cache do Telegram.',
       );
     }
 
@@ -756,6 +961,8 @@ export function useSiteContent() {
     isSaving,
     error,
     uploadAsset,
+    removeUploadedAssets,
+    trimExistingVideo,
     loadSiteContent,
     addModel,
     updateModel,
@@ -764,6 +971,7 @@ export function useSiteContent() {
     addMediaToModel,
     addMediaBatchToModel,
     removeMediaFromModel,
+    toggleModelMediaFavorite,
     addModelFullContentVideo,
     removeModelFullContentVideo,
     removeModelFullContentComment,

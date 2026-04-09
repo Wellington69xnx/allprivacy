@@ -83,10 +83,10 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
               loading="eager"
               fetchPriority="high"
               initial={{ opacity: 0, scale: 1.015, filter: 'brightness(0.08)' }}
-              animate={{ opacity: 1, scale: 1.015, filter: 'brightness(0.34)' }}
+              animate={{ opacity: 1, scale: 1.015, filter: 'brightness(0.35)' }}
               exit={{ opacity: 0, scale: 1.015, filter: 'brightness(0.06)' }}
-              transition={{ duration: 2.8, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute inset-0 h-full w-full object-cover object-center opacity-35"
+              transition={{ duration: 1.2, ease: 'easeOut' }}
+              className="absolute inset-0 h-full w-full object-cover object-center opacity-35 md:opacity-24"
             />
           ) : null}
         </AnimatePresence>
@@ -98,7 +98,7 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
               animate={{ opacity: [0.04, 0.2, 0.34, 0.18, 0] }}
               exit={{ opacity: 0 }}
               transition={{
-                duration: 2.8,
+                duration: 1.2,
                 ease: 'easeInOut',
                 times: [0, 0.2, 0.46, 0.74, 1],
               }}
@@ -106,8 +106,8 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
             />
           ) : null}
         </AnimatePresence>
-        <div className="absolute inset-0 bg-black/84" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(127,29,29,0.28),transparent_28%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.1),transparent_34%)]" />
+        <div className="absolute inset-0 bg-black/50 md:bg-black/70" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(127,29,29,0.28),transparent_28%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.1),transparent_34%)] md:bg-[radial-gradient(circle_at_top,rgba(127,29,29,0.22),transparent_24%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.07),transparent_30%)]" />
       </div>
 
       <div
@@ -130,8 +130,8 @@ export function HeroSection({ ctaHref, backgroundSrc }: HeroSectionProps) {
           <h1 className="font-display text-[2rem] font-semibold leading-tight tracking-tight text-white sm:text-5xl">
             {'AllPrivacyVIP no Telegram.'}
           </h1>
-                    <p className="mx-auto max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
-            {'Encontre tudo o que voc\u00ea procura em um s\u00f3 lugar.'}
+          <p className="mx-auto max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
+            {'Encontre tudo o que você procura em um só lugar.'}
           </p>
         </motion.div>
       </div>

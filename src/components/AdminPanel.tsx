@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { getAdminCommentsPath, getHomePath, getModelVideoPath } from '../lib/modelRoute';
 import type {
@@ -13,7 +13,7 @@ import type {
   UploadAssetResult,
 } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
-import { CloseIcon } from './icons';
+import { CloseIcon, StarIcon } from './icons';
 
 const CACHE_WARM_STATUS_STORAGE_KEY = 'allprivacy-admin-telegram-cache-status-v1';
 const CACHE_WARM_FEEDBACK_STORAGE_KEY = 'allprivacy-admin-telegram-cache-feedback-v1';
@@ -48,7 +48,7 @@ interface AdminPanelProps {
     accentFrom?: string;
     accentTo?: string;
   }) => Promise<void>;
-  removeModel: (modelId: string) => Promise<void>;
+  removeModel: (modelId: string, options?: { deleteAssetFiles?: boolean }) => Promise<void>;
   toggleModelHomeVisibility: (modelId: string) => Promise<void>;
   addMediaToModel: (input: {
     modelId: string;
@@ -69,23 +69,45 @@ interface AdminPanelProps {
       src?: string;
     }>,
   ) => Promise<void>;
-  removeMediaFromModel: (modelId: string, mediaId: string) => Promise<void>;
+  removeMediaFromModel: (
+    modelId: string,
+    mediaId: string,
+    options?: { deleteAssetFiles?: boolean },
+  ) => Promise<void>;
+  toggleModelMediaFavorite: (modelId: string, mediaId: string) => Promise<void>;
   addModelFullContentVideo: (input: {
     modelId: string;
     videoUrl: string;
     routeToken?: string;
     title?: string;
   }) => Promise<void>;
-  removeModelFullContentVideo: (modelId: string, contentId: string) => Promise<void>;
+  removeModelFullContentVideo: (
+    modelId: string,
+    contentId: string,
+    options?: { deleteAssetFiles?: boolean },
+  ) => Promise<void>;
   addGroupProofItem: (input: { title: string; image: string }) => Promise<void>;
-  removeGroupProofItem: (itemId: string) => Promise<void>;
+  removeGroupProofItem: (
+    itemId: string,
+    options?: { deleteAssetFiles?: boolean },
+  ) => Promise<void>;
   addHeroBackground: (input: {
     title: string;
     image: string;
     target: HeroBackgroundTarget;
   }) => Promise<void>;
-  removeHeroBackground: (target: HeroBackgroundTarget, itemId: string) => Promise<void>;
-  clearSiteContent: () => Promise<void>;
+  removeHeroBackground: (
+    target: HeroBackgroundTarget,
+    itemId: string,
+    options?: { deleteAssetFiles?: boolean },
+  ) => Promise<void>;
+  clearSiteContent: (options?: { deleteAssetFiles?: boolean }) => Promise<void>;
+  trimExistingVideo: (
+    assetUrl: string,
+    startSeconds: number,
+    endSeconds: number,
+  ) => Promise<{ ok: boolean; assetUrl: string; thumbnailUrl?: string }>;
+  removeUploadedAssets: (assetUrls: string[]) => Promise<void>;
   warmTelegramMediaCache: (
     onStatus?: (status: TelegramCacheWarmStatus) => void,
   ) => Promise<TelegramCacheWarmStatus>;
@@ -97,6 +119,8 @@ interface AdminPanelProps {
     mediaType: 'image' | 'video',
   ) => Promise<TelegramCacheSingleItemResponse>;
 }
+
+type ModelListSort = 'latest' | 'az' | 'content';
 
 interface ModelFormState {
   name: string;
@@ -137,6 +161,27 @@ interface InlineMediaDraftState {
   subtitle: string;
   assets: File[];
 }
+
+interface VideoTrimSelection {
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+}
+
+type VideoTrimDialogState =
+  | {
+      kind: 'draft';
+      file: File;
+      title: string;
+    }
+  | {
+      kind: 'existing';
+      src: string;
+      previewSrc: string;
+      title: string;
+      taskId: string;
+      successMessage: string;
+    };
 
 interface TaskProgressState {
   taskId: string;
@@ -200,12 +245,183 @@ function createClearCaptchaChallenge() {
   };
 }
 
+function mergeUniqueFiles(currentFiles: File[], nextFiles: File[]) {
+  const knownKeys = new Set(
+    currentFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`),
+  );
+  const uniqueNextFiles = nextFiles.filter((file) => {
+    const key = `${file.name}-${file.size}-${file.lastModified}`;
+
+    if (knownKeys.has(key)) {
+      return false;
+    }
+
+    knownKeys.add(key);
+    return true;
+  });
+
+  return [...currentFiles, ...uniqueNextFiles];
+}
+
+function createFileIdentity(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function formatTrimTime(seconds: number) {
+  const safeSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  const totalSeconds = Math.floor(safeSeconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function fileMatchesAccept(file: File, accept: string) {
+  const tokens = accept
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    return true;
+  }
+
+  const mimeType = file.type.toLowerCase();
+  const fileName = file.name.toLowerCase();
+
+  return tokens.some((token) => {
+    if (token === '*/*') {
+      return true;
+    }
+
+    if (token.endsWith('/*')) {
+      const prefix = token.slice(0, -1);
+      return mimeType.startsWith(prefix);
+    }
+
+    if (token.startsWith('.')) {
+      return fileName.endsWith(token);
+    }
+
+    return mimeType === token;
+  });
+}
+
+function getAcceptedClipboardFiles(
+  event: ClipboardEvent<HTMLElement>,
+  accept: string,
+  multiple = false,
+) {
+  const clipboardFiles = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+    fileMatchesAccept(file, accept),
+  );
+  const clipboardItemFiles = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .filter((file) => fileMatchesAccept(file, accept));
+  const mergedFiles = mergeUniqueFiles(clipboardFiles, clipboardItemFiles);
+
+  if (!multiple) {
+    return mergedFiles.slice(0, 1);
+  }
+
+  return mergedFiles;
+}
+
+function inferClipboardFileExtension(type: string) {
+  const normalizedType = type.toLowerCase();
+
+  if (!normalizedType.includes('/')) {
+    return 'bin';
+  }
+
+  const [, subtype] = normalizedType.split('/');
+  const sanitizedSubtype = (subtype || 'bin').split(';')[0]?.trim() || 'bin';
+
+  if (sanitizedSubtype === 'jpeg') {
+    return 'jpg';
+  }
+
+  if (sanitizedSubtype === 'quicktime') {
+    return 'mov';
+  }
+
+  if (sanitizedSubtype === 'x-m4v') {
+    return 'm4v';
+  }
+
+  return sanitizedSubtype;
+}
+
+function createClipboardFile(blob: Blob, index: number) {
+  if (blob instanceof File) {
+    return blob;
+  }
+
+  const type = blob.type || 'application/octet-stream';
+  const extension = inferClipboardFileExtension(type);
+  const fileName = `clipboard-${Date.now()}-${index}.${extension}`;
+
+  return new File([blob], fileName, {
+    type,
+    lastModified: Date.now(),
+  });
+}
+
+async function readAcceptedClipboardFiles(accept: string, multiple = false) {
+  if (typeof navigator === 'undefined' || typeof navigator.clipboard?.read !== 'function') {
+    return [];
+  }
+
+  const items = await navigator.clipboard.read();
+  const files: File[] = [];
+
+  for (const item of items) {
+    for (const type of item.types) {
+      let blob: Blob | null = null;
+
+      try {
+        blob = await item.getType(type);
+      } catch {
+        blob = null;
+      }
+
+      if (!blob) {
+        continue;
+      }
+
+      const file = createClipboardFile(blob, files.length);
+
+      if (!fileMatchesAccept(file, accept)) {
+        continue;
+      }
+
+      files.push(file);
+
+      if (!multiple) {
+        return files.slice(0, 1);
+      }
+    }
+  }
+
+  return multiple ? mergeUniqueFiles([], files) : files.slice(0, 1);
+}
+
 function fieldClassName() {
   return 'min-h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-white/20 focus:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60 md:text-[15px]';
 }
 
 function labelClassName() {
   return 'text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55';
+}
+
+function getModelContentCounts(model: ModelProfile) {
+  return {
+    previews: model.gallery.filter((item) => item.type === 'video').length,
+    images: model.gallery.filter((item) => item.type === 'image').length,
+    exclusives: model.fullContentVideos?.length ?? 0,
+  };
 }
 
 function buttonClassName() {
@@ -300,7 +516,17 @@ function PreviewImage({
   );
 }
 
-function PendingMediaPreview({ file }: { file: File }) {
+function PendingMediaPreview({
+  file,
+  footer,
+  onRemove,
+  aspectClassName = 'aspect-[4/5]',
+}: {
+  file: File;
+  footer?: ReactNode;
+  onRemove?: () => void;
+  aspectClassName?: string;
+}) {
   const previewSrc = usePreviewSrc(file, '');
   const isVideo = file.type.startsWith('video/');
 
@@ -309,8 +535,22 @@ function PendingMediaPreview({ file }: { file: File }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-black">
-      <div className="aspect-[4/5] bg-black">
+    <div className="relative overflow-hidden rounded-[20px] border border-white/10 bg-black">
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRemove();
+          }}
+          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/70 text-sm font-semibold text-white transition hover:bg-red-500/80"
+          aria-label={`Remover ${file.name}`}
+        >
+          ×
+        </button>
+      ) : null}
+      <div className={`${aspectClassName} bg-black`}>
         <AutoplayMedia
           type={isVideo ? 'video' : 'image'}
           src={isVideo ? previewSrc : undefined}
@@ -321,8 +561,9 @@ function PendingMediaPreview({ file }: { file: File }) {
           preloadStrategy={isVideo ? 'metadata' : 'auto'}
         />
       </div>
-      <div className="truncate border-t border-white/10 px-3 py-2 text-[11px] text-white/65">
-        {file.name}
+      <div className="border-t border-white/10 px-3 py-2">
+        <div className="truncate text-[11px] text-white/65">{file.name}</div>
+        {footer ? <div className="mt-2">{footer}</div> : null}
       </div>
     </div>
   );
@@ -392,6 +633,64 @@ function UploadField({
   previewShape?: PreviewShape;
   previewAlt: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isReadingClipboard, setIsReadingClipboard] = useState(false);
+  const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
+
+  const handleKeyboardOpen = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      inputRef.current?.click();
+    }
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
+
+    const pastedFiles = getAcceptedClipboardFiles(event, accept, false);
+
+    if (pastedFiles.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    onFileChange(pastedFiles[0] ?? null);
+  };
+
+  const handleClipboardImport = async () => {
+    if (disabled || isReadingClipboard) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
+      setIsPasteDialogOpen(true);
+      return;
+    }
+
+    setIsReadingClipboard(true);
+
+    try {
+      const pastedFiles = await readAcceptedClipboardFiles(accept, false);
+
+      if (pastedFiles.length > 0) {
+        onFileChange(pastedFiles[0] ?? null);
+        return;
+      }
+
+      setIsPasteDialogOpen(true);
+    } catch {
+      setIsPasteDialogOpen(true);
+    } finally {
+      setIsReadingClipboard(false);
+    }
+  };
+
   return (
     <div className="grid self-start gap-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -403,16 +702,47 @@ function UploadField({
         <PreviewImage file={file} url={urlValue} alt={previewAlt} shape={previewShape} />
       ) : null}
 
-      <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
+      <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        onClick={() => {
+          if (!disabled) {
+            inputRef.current?.click();
+          }
+        }}
+        onKeyDown={handleKeyboardOpen}
+        onPaste={handlePaste}
+        className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-white/15"
+      >
         <input
+          ref={inputRef}
           type="file"
           accept={accept}
           className="hidden"
           disabled={disabled}
           onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
         />
-        {file ? 'Trocar arquivo local' : 'Selecionar arquivo local'}
-      </label>
+        <div className="flex items-center justify-between gap-3">
+          <span>{file ? 'Trocar arquivo local' : 'Selecionar arquivo local'}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void handleClipboardImport();
+              }}
+              disabled={disabled || isReadingClipboard}
+              className="inline-flex min-h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isReadingClipboard ? 'Colando...' : 'Colar'}
+            </button>
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+              Ctrl+V
+            </span>
+          </div>
+        </div>
+      </div>
 
       <input
         value={urlValue}
@@ -422,7 +752,23 @@ function UploadField({
         disabled={disabled}
       />
 
-      {helper ? <p className="text-xs leading-5 text-white/45">{helper}</p> : null}
+      {helper ? (
+        <p className="text-xs leading-5 text-white/45">
+          {helper} Toque em <strong className="text-white/70">Colar</strong> no iPhone.
+        </p>
+      ) : (
+        <p className="text-xs leading-5 text-white/45">
+          Toque em <strong className="text-white/70">Colar</strong> no iPhone.
+        </p>
+      )}
+
+      <ClipboardPasteDialog
+        isOpen={isPasteDialogOpen}
+        title={label}
+        accept={accept}
+        onFiles={(pastedFiles) => onFileChange(pastedFiles[0] ?? null)}
+        onClose={() => setIsPasteDialogOpen(false)}
+      />
     </div>
   );
 }
@@ -432,6 +778,8 @@ function MultiFileUploadField({
   accept,
   files,
   onFilesChange,
+  onRemoveFile,
+  renderPreviewFooter,
   helper,
   disabled = false,
 }: {
@@ -439,9 +787,78 @@ function MultiFileUploadField({
   accept: string;
   files: File[];
   onFilesChange: (files: File[]) => void;
+  onRemoveFile?: (file: File, index: number) => void;
+  renderPreviewFooter?: (file: File) => ReactNode;
   helper?: string;
   disabled?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef(files);
+  const [isReadingClipboard, setIsReadingClipboard] = useState(false);
+  const [isPasteDialogOpen, setIsPasteDialogOpen] = useState(false);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  const appendFiles = (nextFiles: File[]) => {
+    onFilesChange(mergeUniqueFiles(filesRef.current, nextFiles));
+  };
+
+  const handleKeyboardOpen = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      inputRef.current?.click();
+    }
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
+
+    const pastedFiles = getAcceptedClipboardFiles(event, accept, true);
+
+    if (pastedFiles.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    appendFiles(pastedFiles);
+  };
+
+  const handleClipboardImport = async () => {
+    if (disabled || isReadingClipboard) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
+      setIsPasteDialogOpen(true);
+      return;
+    }
+
+    setIsReadingClipboard(true);
+
+    try {
+      const pastedFiles = await readAcceptedClipboardFiles(accept, true);
+
+      if (pastedFiles.length > 0) {
+        appendFiles(pastedFiles);
+        return;
+      }
+
+      setIsPasteDialogOpen(true);
+    } catch {
+      setIsPasteDialogOpen(true);
+    } finally {
+      setIsReadingClipboard(false);
+    }
+  };
+
   return (
     <div className="grid gap-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -449,27 +866,89 @@ function MultiFileUploadField({
         {files.length > 0 ? <span className="text-xs text-white/45">{files.length} arquivo(s)</span> : null}
       </div>
 
-      <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
+      <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        onClick={() => {
+          if (!disabled) {
+            inputRef.current?.click();
+          }
+        }}
+        onKeyDown={handleKeyboardOpen}
+        onPaste={handlePaste}
+        className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-white/15"
+      >
         <input
+          ref={inputRef}
           type="file"
           accept={accept}
           multiple
           className="hidden"
           disabled={disabled}
-          onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))}
+          onChange={(event) => {
+            appendFiles(Array.from(event.target.files ?? []));
+            event.currentTarget.value = '';
+          }}
         />
-        {files.length > 0 ? 'Trocar arquivos locais' : 'Selecionar varios arquivos'}
-      </label>
+        <div className="flex items-center justify-between gap-3">
+          <span>{files.length > 0 ? 'Adicionar mais arquivos' : 'Selecionar varios arquivos'}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void handleClipboardImport();
+              }}
+              disabled={disabled || isReadingClipboard}
+              className="inline-flex min-h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isReadingClipboard ? 'Colando...' : 'Colar'}
+            </button>
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+              Ctrl+V
+            </span>
+          </div>
+        </div>
+      </div>
 
       {files.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {files.map((file) => (
-            <PendingMediaPreview key={`${file.name}-${file.lastModified}`} file={file} />
+          {files.map((file, index) => (
+            <PendingMediaPreview
+              key={`${file.name}-${file.lastModified}`}
+              file={file}
+              onRemove={
+                onRemoveFile
+                  ? () => {
+                      onRemoveFile(file, index);
+                    }
+                  : undefined
+              }
+              footer={renderPreviewFooter?.(file)}
+            />
           ))}
         </div>
       ) : null}
 
-      {helper ? <p className="text-xs leading-5 text-white/45">{helper}</p> : null}
+      {helper ? (
+        <p className="text-xs leading-5 text-white/45">
+          {helper} Toque em <strong className="text-white/70">Colar</strong> no iPhone.
+        </p>
+      ) : (
+        <p className="text-xs leading-5 text-white/45">
+          Toque em <strong className="text-white/70">Colar</strong> no iPhone.
+        </p>
+      )}
+
+      <ClipboardPasteDialog
+        isOpen={isPasteDialogOpen}
+        title={label}
+        accept={accept}
+        multiple
+        onFiles={(pastedFiles) => appendFiles(pastedFiles)}
+        onClose={() => setIsPasteDialogOpen(false)}
+      />
     </div>
   );
 }
@@ -672,6 +1151,477 @@ function AdminMobileDialog({
 
             <div className="px-5 py-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
               {children}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function ClipboardPasteDialog({
+  isOpen,
+  title,
+  accept,
+  multiple = false,
+  onFiles,
+  onClose,
+}: {
+  isOpen: boolean;
+  title: string;
+  accept: string;
+  multiple?: boolean;
+  onFiles: (files: File[]) => void;
+  onClose: () => void;
+}) {
+  const pasteTargetRef = useRef<HTMLDivElement>(null);
+  const [feedback, setFeedback] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+    window.setTimeout(() => {
+      pasteTargetRef.current?.focus();
+    }, 60);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+      setFeedback('');
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen || typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[95] bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className="relative w-full max-w-lg overflow-hidden rounded-[30px] border border-white/10 bg-[#09090c]/95 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white backdrop-blur-md"
+          >
+            <CloseIcon className="h-5 w-5" />
+          </button>
+
+          <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top,rgba(127,29,29,0.16),transparent_38%),radial-gradient(circle_at_bottom,rgba(168,85,247,0.08),transparent_42%)] px-5 pb-6 pt-16">
+            <h2 className="font-display text-2xl font-semibold text-white">{title}</h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-300">
+              No iPhone, toque e segure na caixa abaixo e escolha <strong>Colar</strong>.
+            </p>
+          </div>
+
+          <div className="grid gap-4 px-5 py-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+            <div
+              ref={pasteTargetRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              tabIndex={0}
+              onPaste={(event) => {
+                const pastedFiles = getAcceptedClipboardFiles(event, accept, multiple);
+
+                if (pastedFiles.length === 0) {
+                  setFeedback('Nao encontrei uma midia valida na area de transferencia.');
+                  return;
+                }
+
+                event.preventDefault();
+                onFiles(pastedFiles);
+                onClose();
+              }}
+              className="min-h-40 rounded-[24px] border border-dashed border-white/15 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-white/55 outline-none transition focus:border-white/25 focus:bg-white/[0.05]"
+            >
+              Toque e segure aqui para colar a midia copiada.
+            </div>
+
+            {feedback ? (
+              <p className="text-sm leading-6 text-amber-100/85">{feedback}</p>
+            ) : (
+              <p className="text-xs leading-5 text-white/45">
+                Tambem funciona com <strong className="text-white/70">Ctrl+V</strong> no desktop.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function VideoTrimDialog({
+  state,
+  initialSelection,
+  onApply,
+  onClear,
+  onClose,
+}: {
+  state: VideoTrimDialogState | null;
+  initialSelection: VideoTrimSelection | null;
+  onApply: (selection: VideoTrimSelection) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const previewSrc = usePreviewSrc(
+    state?.kind === 'draft' ? state.file : null,
+    state?.kind === 'existing' ? state.previewSrc : '',
+  );
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [durationSeconds, setDurationSeconds] = useState(initialSelection?.durationSeconds ?? 0);
+  const [startSeconds, setStartSeconds] = useState(initialSelection?.startSeconds ?? 0);
+  const [endSeconds, setEndSeconds] = useState(
+    initialSelection?.endSeconds ?? initialSelection?.durationSeconds ?? 0,
+  );
+  const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+
+    setDurationSeconds(initialSelection?.durationSeconds ?? 0);
+    setStartSeconds(initialSelection?.startSeconds ?? 0);
+    setEndSeconds(initialSelection?.endSeconds ?? initialSelection?.durationSeconds ?? 0);
+    setCurrentTimeSeconds(0);
+  }, [
+    initialSelection?.durationSeconds,
+    initialSelection?.endSeconds,
+    initialSelection?.startSeconds,
+    state,
+  ]);
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [state, onClose]);
+
+  if (!state || typeof document === 'undefined') {
+    return null;
+  }
+
+  const minimumClipLength = 0.2;
+  const safeDuration = Math.max(durationSeconds, minimumClipLength);
+  const normalizedStartSeconds = Math.min(startSeconds, Math.max(0, endSeconds - minimumClipLength));
+  const normalizedEndSeconds = Math.max(endSeconds, normalizedStartSeconds + minimumClipLength);
+  const canApply =
+    durationSeconds > minimumClipLength &&
+    normalizedEndSeconds - normalizedStartSeconds >= minimumClipLength;
+  const startPercent = Math.min(100, (normalizedStartSeconds / safeDuration) * 100);
+  const endPercent = Math.min(100, (normalizedEndSeconds / safeDuration) * 100);
+  const playheadPercent = Math.min(100, (currentTimeSeconds / safeDuration) * 100);
+
+  const seekToTime = (nextSeconds: number, autoPlay = false) => {
+    if (!videoRef.current) {
+      return;
+    }
+
+    videoRef.current.currentTime = Math.max(0, Math.min(nextSeconds, safeDuration));
+
+    if (autoPlay) {
+      void videoRef.current.play().catch(() => undefined);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] bg-black/75 backdrop-blur-md" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Cortar video: ${state.title}`}
+          className="relative w-full max-w-4xl overflow-hidden rounded-[30px] border border-white/10 bg-[#09090c]/95 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white backdrop-blur-md"
+          >
+            <CloseIcon className="h-5 w-5" />
+          </button>
+
+          <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr),340px]">
+            <div className="border-b border-white/10 bg-black lg:border-b-0 lg:border-r">
+              <div className="aspect-video bg-black">
+                {previewSrc ? (
+                  <video
+                    ref={videoRef}
+                    src={previewSrc}
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full bg-black object-contain"
+                    onLoadedMetadata={(event) => {
+                      const metadataDuration = Math.max(
+                        minimumClipLength,
+                        Number.isFinite(event.currentTarget.duration)
+                          ? event.currentTarget.duration
+                          : 0,
+                      );
+                      setDurationSeconds(metadataDuration);
+                      setCurrentTimeSeconds(0);
+                      setStartSeconds((current) =>
+                        Math.min(current, Math.max(0, metadataDuration - minimumClipLength)),
+                      );
+                      setEndSeconds(() => {
+                        const baseEnd =
+                          initialSelection?.endSeconds && initialSelection.endSeconds > 0
+                            ? initialSelection.endSeconds
+                            : metadataDuration;
+                        return Math.min(
+                          metadataDuration,
+                          Math.max(baseEnd, minimumClipLength),
+                        );
+                      });
+                    }}
+                    onTimeUpdate={(event) => {
+                      setCurrentTimeSeconds(event.currentTarget.currentTime);
+                      if (
+                        event.currentTarget.currentTime >= normalizedEndSeconds &&
+                        normalizedEndSeconds > normalizedStartSeconds
+                      ) {
+                        event.currentTarget.pause();
+                      }
+                    }}
+                    onClick={() => {
+                      if (!videoRef.current) {
+                        return;
+                      }
+
+                      if (videoRef.current.paused) {
+                        void videoRef.current.play().catch(() => undefined);
+                      } else {
+                        videoRef.current.pause();
+                      }
+                    }}
+                  />
+                ) : null}
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-4 sm:px-5">
+                <div
+                  ref={timelineRef}
+                  className="relative h-14 cursor-pointer touch-none"
+                  onClick={(event) => {
+                    if (!timelineRef.current) {
+                      return;
+                    }
+
+                    const rect = timelineRef.current.getBoundingClientRect();
+                    const ratio = Math.min(
+                      1,
+                      Math.max(0, (event.clientX - rect.left) / Math.max(rect.width, 1)),
+                    );
+                    seekToTime(ratio * safeDuration);
+                  }}
+                >
+                  <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-white/10" />
+                  <div
+                    className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-gradient-to-r from-rose-500 to-violet-500"
+                    style={{
+                      left: `${startPercent}%`,
+                      width: `${Math.max(2, endPercent - startPercent)}%`,
+                    }}
+                  />
+                  <div
+                    className="pointer-events-none absolute top-1/2 h-5 w-[2px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/70"
+                    style={{ left: `${playheadPercent}%` }}
+                  />
+                  <div
+                    className="pointer-events-none absolute top-1.5 -translate-x-1/2 rounded-full bg-black/75 px-2 py-0.5 text-[10px] font-semibold text-white"
+                    style={{ left: `${startPercent}%` }}
+                  >
+                    {formatTrimTime(normalizedStartSeconds)}
+                  </div>
+                  <div
+                    className="pointer-events-none absolute top-1.5 -translate-x-1/2 rounded-full bg-black/75 px-2 py-0.5 text-[10px] font-semibold text-white"
+                    style={{ left: `${endPercent}%` }}
+                  >
+                    {formatTrimTime(normalizedEndSeconds)}
+                  </div>
+                  <div
+                    className="pointer-events-none absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-white shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                    style={{ left: `${startPercent}%` }}
+                  />
+                  <div
+                    className="pointer-events-none absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-white shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                    style={{ left: `${endPercent}%` }}
+                  />
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <div className="grid gap-1.5">
+                    <div className="flex items-center justify-between gap-3 text-xs font-medium text-white/55">
+                      <span>Início</span>
+                      <span>{formatTrimTime(normalizedStartSeconds)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={safeDuration}
+                      step={0.1}
+                      value={normalizedStartSeconds}
+                      onChange={(event) => {
+                        const nextStart = Number(event.target.value);
+                        const limitedStart = Math.min(
+                          nextStart,
+                          Math.max(0, normalizedEndSeconds - minimumClipLength),
+                        );
+                        setStartSeconds(limitedStart);
+                        seekToTime(limitedStart);
+                      }}
+                      className="h-3 w-full accent-rose-500"
+                    />
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <div className="flex items-center justify-between gap-3 text-xs font-medium text-white/55">
+                      <span>Fim</span>
+                      <span>{formatTrimTime(normalizedEndSeconds)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={safeDuration}
+                      step={0.1}
+                      value={normalizedEndSeconds}
+                      onChange={(event) => {
+                        const nextEnd = Number(event.target.value);
+                        const limitedEnd = Math.max(
+                          Math.min(nextEnd, safeDuration),
+                          normalizedStartSeconds + minimumClipLength,
+                        );
+                        setEndSeconds(limitedEnd);
+                        seekToTime(limitedEnd);
+                      }}
+                      className="h-3 w-full accent-violet-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-xs text-white/55">
+                    <span>Ajuste pelos controles abaixo do preview.</span>
+                    <span>{formatTrimTime(Math.max(0, normalizedEndSeconds - normalizedStartSeconds))}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-5 p-5 sm:p-6">
+              <div>
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">
+                  Corte de video
+                </span>
+                <h3 className="mt-3 font-display text-2xl font-semibold text-white">
+                  {state.title}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-300">
+                  Ajuste direto na timeline abaixo do preview e envie so o trecho certo.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                    Trecho
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatTrimTime(Math.max(0, normalizedEndSeconds - normalizedStartSeconds))}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                    Inicio
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatTrimTime(normalizedStartSeconds)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                    Fim
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatTrimTime(normalizedEndSeconds)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => seekToTime(normalizedStartSeconds, true)}
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-medium text-white transition hover:bg-white/[0.08]"
+                >
+                  Testar trecho
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClear();
+                    onClose();
+                  }}
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-white/10 bg-transparent px-4 py-3 text-sm font-medium text-white/70 transition hover:bg-white/[0.05] hover:text-white"
+                >
+                  Remover corte
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canApply) {
+                      return;
+                    }
+
+                    onApply({
+                      startSeconds: normalizedStartSeconds,
+                      endSeconds: normalizedEndSeconds,
+                      durationSeconds,
+                    });
+                    onClose();
+                  }}
+                  disabled={!canApply}
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-rose-600 via-rose-500 to-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(168,85,247,0.22)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Aplicar corte
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -947,6 +1897,7 @@ export function AdminPanel({
   toggleModelHomeVisibility,
   addMediaBatchToModel,
   removeMediaFromModel,
+  toggleModelMediaFavorite,
   addModelFullContentVideo,
   removeModelFullContentVideo,
   addGroupProofItem,
@@ -954,6 +1905,7 @@ export function AdminPanel({
   addHeroBackground,
   removeHeroBackground,
   clearSiteContent,
+  trimExistingVideo,
   warmTelegramMediaCache,
   checkTelegramMediaCache,
   warmSingleTelegramMediaCache,
@@ -992,6 +1944,17 @@ export function AdminPanel({
   const [editingModelForm, setEditingModelForm] = useState(emptyModelForm);
   const [editingModelFiles, setEditingModelFiles] = useState(emptyModelFiles);
   const [fullContentFiles, setFullContentFiles] = useState<Record<string, File | null>>({});
+  const [clipboardReadingTargetId, setClipboardReadingTargetId] = useState<string | null>(null);
+  const [videoTrimSelections, setVideoTrimSelections] = useState<Record<string, VideoTrimSelection>>(
+    {},
+  );
+  const [assetVersionBusters, setAssetVersionBusters] = useState<Record<string, number>>({});
+  const [videoTrimDialogState, setVideoTrimDialogState] = useState<VideoTrimDialogState | null>(
+    null,
+  );
+  const [fullContentPasteDialogModelId, setFullContentPasteDialogModelId] = useState<string | null>(
+    null,
+  );
   const [inlineModelMediaDrafts, setInlineModelMediaDrafts] = useState<
     Record<string, InlineMediaDraftState>
   >({});
@@ -999,6 +1962,7 @@ export function AdminPanel({
     null,
   );
   const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [modelListSort, setModelListSort] = useState<ModelListSort>('latest');
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({
     model: false,
     media: false,
@@ -1121,6 +2085,35 @@ export function AdminPanel({
     setClearCaptchaInput('');
   };
 
+  const askDeleteAssetFiles = (message: string) => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return window.confirm(message);
+  };
+
+  const getVersionedAssetUrl = (assetUrl: string) => {
+    const version = assetVersionBusters[assetUrl];
+
+    if (!assetUrl || !version) {
+      return assetUrl;
+    }
+
+    return `${assetUrl}${assetUrl.includes('?') ? '&' : '?'}v=${version}`;
+  };
+
+  const bumpAssetVersion = (assetUrl: string) => {
+    if (!assetUrl) {
+      return;
+    }
+
+    setAssetVersionBusters((current) => ({
+      ...current,
+      [assetUrl]: (current[assetUrl] ?? 0) + 1,
+    }));
+  };
+
   const resolveAsset = async ({
     file,
     fallbackUrl,
@@ -1161,7 +2154,7 @@ export function AdminPanel({
     range?: [number, number];
     optionsBuilder: (file: File, index: number) => UploadAssetOptions;
   }) => {
-    const uploadedUrls: string[] = [];
+    const uploadedAssets: UploadAssetResult[] = [];
 
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
@@ -1178,7 +2171,7 @@ export function AdminPanel({
         );
       });
 
-      uploadedUrls.push(uploaded.url);
+      uploadedAssets.push(uploaded);
       updateTaskProgress(
         taskId,
         `${label} ${index + 1}/${files.length}`,
@@ -1186,7 +2179,7 @@ export function AdminPanel({
       );
     }
 
-    return uploadedUrls;
+    return uploadedAssets;
   };
 
   const getTaskProgress = (taskId: string) =>
@@ -1249,6 +2242,147 @@ export function AdminPanel({
       const next = { ...current };
       delete next[modelId];
       return next;
+    });
+  };
+
+  const getVideoTrimSelection = (file: File | null) => {
+    if (!file || !file.type.startsWith('video/')) {
+      return null;
+    }
+
+    return videoTrimSelections[createFileIdentity(file)] ?? null;
+  };
+
+  const applyVideoTrimSelection = (file: File, selection: VideoTrimSelection | null) => {
+    const fileIdentity = createFileIdentity(file);
+
+    setVideoTrimSelections((current) => {
+      if (!selection) {
+        if (!(fileIdentity in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[fileIdentity];
+        return next;
+      }
+
+      return {
+        ...current,
+        [fileIdentity]: selection,
+      };
+    });
+  };
+
+  const buildVideoUploadOptions = (
+    file: File,
+    options: UploadAssetOptions,
+  ): UploadAssetOptions => {
+    if (!file.type.startsWith('video/')) {
+      return options;
+    }
+
+    const trimSelection = getVideoTrimSelection(file);
+
+    if (!trimSelection) {
+      return options;
+    }
+
+    return {
+      ...options,
+      trimStartSeconds: trimSelection.startSeconds,
+      trimEndSeconds: trimSelection.endSeconds,
+    };
+  };
+
+  const renderVideoTrimFooter = (file: File) => {
+    if (!file.type.startsWith('video/')) {
+      return null;
+    }
+
+    const trimSelection = getVideoTrimSelection(file);
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            setVideoTrimDialogState({
+              kind: 'draft',
+              file,
+              title: file.name,
+            })
+          }
+          className="inline-flex min-h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:bg-white/[0.08]"
+        >
+          {trimSelection ? 'Editar' : 'Cortar'}
+        </button>
+        {trimSelection ? (
+          <span className="text-[10px] font-medium text-emerald-300/90">
+            {formatTrimTime(trimSelection.startSeconds)} - {formatTrimTime(trimSelection.endSeconds)}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
+  const handleTrimExistingVideo = async ({
+    assetUrl,
+    startSeconds,
+    endSeconds,
+    taskId,
+    successMessage,
+  }: {
+    assetUrl: string;
+    startSeconds: number;
+    endSeconds: number;
+    taskId: string;
+    successMessage: string;
+  }) => {
+    if (activeTask) {
+      return;
+    }
+
+    setActiveTask(taskId);
+    updateTaskProgress(taskId, 'Processando corte', 32);
+    setFeedback(null);
+
+    try {
+      const trimResult = await trimExistingVideo(assetUrl, startSeconds, endSeconds);
+      bumpAssetVersion(assetUrl);
+      if (trimResult.thumbnailUrl) {
+        bumpAssetVersion(trimResult.thumbnailUrl);
+      }
+      updateTaskProgress(taskId, 'Video atualizado', 100);
+      setFeedback(successMessage);
+    } catch {
+      setFeedback('Nao foi possivel cortar este video agora.');
+    } finally {
+      setActiveTask(null);
+      clearTaskProgress();
+    }
+  };
+
+  const openExistingVideoTrimDialog = ({
+    assetUrl,
+    previewSrc,
+    title,
+    taskId,
+    successMessage,
+  }: {
+    assetUrl: string;
+    previewSrc?: string;
+    title: string;
+    taskId: string;
+    successMessage: string;
+  }) => {
+    setVideoTrimDialogState({
+      kind: 'existing',
+      src: assetUrl,
+      previewSrc: previewSrc ?? getVersionedAssetUrl(assetUrl),
+      title,
+      taskId,
+      successMessage,
     });
   };
 
@@ -1426,17 +2560,23 @@ export function AdminPanel({
         taskId,
         label: 'Enviando conteudo',
         range: [16, 86],
-        optionsBuilder: (file) => ({
-          bucket: 'model-media',
-          modelName: model.name,
-          mediaType: file.type.startsWith('video/') ? 'video' : 'image',
-        }),
+        optionsBuilder: (file) =>
+          buildVideoUploadOptions(file, {
+            bucket: 'model-media',
+            modelName: model.name,
+            mediaType: file.type.startsWith('video/') ? 'video' : 'image',
+          }),
       });
 
       const trimmedTitle = title.trim();
-      const batchItems = assetUploads.map((assetUrl, index) => {
+      const batchItems = assetUploads.map((uploadedAsset, index) => {
         const file = files[index];
         const mediaType = file?.type.startsWith('video/') ? 'video' : 'image';
+        const assetUrl = uploadedAsset.url;
+        const thumbnailUrl =
+          mediaType === 'video'
+            ? uploadedAsset.thumbnailUrl || uploadedAsset.url
+            : uploadedAsset.url;
 
         return {
           modelId: model.id,
@@ -1446,7 +2586,7 @@ export function AdminPanel({
               ? `${trimmedTitle} ${index + 1}`
               : trimmedTitle || `Previa ${index + 1}`,
           subtitle,
-          thumbnail: assetUrl,
+          thumbnail: thumbnailUrl,
           src: mediaType === 'video' ? assetUrl : undefined,
         };
       });
@@ -1517,11 +2657,11 @@ export function AdminPanel({
         taskId,
         label: 'Enviando video exclusivo',
         progressRange: [18, 86],
-        options: {
+        options: buildVideoUploadOptions(selectedFile, {
           bucket: 'model-full-video',
           modelName: model.name,
           mediaType: 'video',
-        },
+        }),
       });
 
       updateTaskProgress(taskId, 'Gravando rota exclusiva', 92);
@@ -1544,6 +2684,37 @@ export function AdminPanel({
     }
   };
 
+  const handlePasteFullContentVideo = async (modelId: string) => {
+    if (activeTask || clipboardReadingTargetId) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
+      setFullContentPasteDialogModelId(modelId);
+      return;
+    }
+
+    const targetId = `full-content-paste-${modelId}`;
+    setClipboardReadingTargetId(targetId);
+
+    try {
+      const pastedFiles = await readAcceptedClipboardFiles('video/*', false);
+
+      if (pastedFiles.length > 0) {
+        setFullContentFiles((current) => ({
+          ...current,
+          [modelId]: pastedFiles[0] ?? null,
+        }));
+        return;
+      }
+      setFullContentPasteDialogModelId(modelId);
+    } catch {
+      setFullContentPasteDialogModelId(modelId);
+    } finally {
+      setClipboardReadingTargetId(null);
+    }
+  };
+
   const handleRemoveFullContentVideo = async (modelId: string, contentId: string) => {
     if (activeTask) {
       return;
@@ -1556,14 +2727,22 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar o arquivo de video do storage/uploads?',
+    );
+
     const taskId = `remove-full-content-${contentId}`;
 
     setActiveTask(taskId);
     setFeedback(null);
 
     try {
-      await removeModelFullContentVideo(modelId, contentId);
-      setFeedback('Video exclusivo removido da pagina independente.');
+      await removeModelFullContentVideo(modelId, contentId, { deleteAssetFiles });
+      setFeedback(
+        deleteAssetFiles
+          ? 'Video exclusivo removido e arquivo apagado do storage.'
+          : 'Video exclusivo removido da pagina independente.',
+      );
     } catch {
       setFeedback('Nao foi possivel remover o video exclusivo agora.');
     } finally {
@@ -1671,12 +2850,16 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar todos os arquivos de midia do storage/uploads?',
+    );
+
     setActiveTask('clear');
     updateTaskProgress('clear', 'Limpando conteudo', 40);
     setFeedback(null);
 
     try {
-      await clearSiteContent();
+      await clearSiteContent({ deleteAssetFiles });
       setModelForm(emptyModelForm);
       setMediaForm(emptyMediaForm);
       setGroupProofForm(emptyGroupProofForm);
@@ -1692,7 +2875,11 @@ export function AdminPanel({
       stopEditingModel();
       resetClearConfirmation();
       updateTaskProgress('clear', 'Conteudo limpo', 100);
-      setFeedback('Conteudo limpo. A home agora mostra somente o que voce voltar a cadastrar.');
+      setFeedback(
+        deleteAssetFiles
+          ? 'Conteudo limpo e arquivos de midia apagados do storage.'
+          : 'Conteudo limpo. A home agora mostra somente o que voce voltar a cadastrar.',
+      );
     } catch {
       setFeedback('Nao foi possivel limpar o conteudo agora.');
     } finally {
@@ -1842,11 +3029,15 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar todos os arquivos dessa modelo do storage/uploads?',
+    );
+
     setActiveTask(`remove-model-${modelId}`);
     setFeedback(null);
 
     try {
-      await removeModel(modelId);
+      await removeModel(modelId, { deleteAssetFiles });
       setFullContentFiles((current) => {
         if (!(modelId in current)) {
           return current;
@@ -1875,7 +3066,11 @@ export function AdminPanel({
 
       clearInlineMediaDraft(modelId);
 
-      setFeedback('Modelo removida do site.');
+      setFeedback(
+        deleteAssetFiles
+          ? 'Modelo removida e arquivos apagados do storage.'
+          : 'Modelo removida do site.',
+      );
     } catch {
       setFeedback('Nao foi possivel remover a modelo agora.');
     } finally {
@@ -1917,14 +3112,44 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar o arquivo dessa previa do storage/uploads?',
+    );
+
     setActiveTask(`remove-media-${mediaId}`);
     setFeedback(null);
 
     try {
-      await removeMediaFromModel(modelId, mediaId);
-      setFeedback('Conteudo removido da modelo.');
+      await removeMediaFromModel(modelId, mediaId, { deleteAssetFiles });
+      setFeedback(
+        deleteAssetFiles
+          ? 'Conteudo removido e arquivo apagado do storage.'
+          : 'Conteudo removido da modelo.',
+      );
     } catch {
       setFeedback('Nao foi possivel remover o conteudo agora.');
+    } finally {
+      setActiveTask(null);
+    }
+  };
+
+  const handleToggleMediaFavorite = async (
+    modelId: string,
+    mediaId: string,
+    isFavorite: boolean,
+  ) => {
+    if (activeTask) {
+      return;
+    }
+
+    setActiveTask(`toggle-favorite-media-${mediaId}`);
+    setFeedback(null);
+
+    try {
+      await toggleModelMediaFavorite(modelId, mediaId);
+      setFeedback(isFavorite ? 'Previa removida dos favoritos.' : 'Previa marcada como favorita.');
+    } catch {
+      setFeedback('Nao foi possivel atualizar o favorito da previa agora.');
     } finally {
       setActiveTask(null);
     }
@@ -1942,12 +3167,20 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar o arquivo desse print do storage/uploads?',
+    );
+
     setActiveTask(`remove-group-${itemId}`);
     setFeedback(null);
 
     try {
-      await removeGroupProofItem(itemId);
-      setFeedback('Print removido da home.');
+      await removeGroupProofItem(itemId, { deleteAssetFiles });
+      setFeedback(
+        deleteAssetFiles
+          ? 'Print removido e arquivo apagado do storage.'
+          : 'Print removido da home.',
+      );
     } catch {
       setFeedback('Nao foi possivel remover o print agora.');
     } finally {
@@ -1970,12 +3203,20 @@ export function AdminPanel({
       return;
     }
 
+    const deleteAssetFiles = askDeleteAssetFiles(
+      'Deseja tambem apagar o arquivo desse fundo do storage/uploads?',
+    );
+
     setActiveTask(`remove-hero-${itemId}`);
     setFeedback(null);
 
     try {
-      await removeHeroBackground(target, itemId);
-      setFeedback('Fundo da home removido.');
+      await removeHeroBackground(target, itemId, { deleteAssetFiles });
+      setFeedback(
+        deleteAssetFiles
+          ? 'Fundo removido e arquivo apagado do storage.'
+          : 'Fundo da home removido.',
+      );
     } catch {
       setFeedback('Nao foi possivel remover o fundo agora.');
     } finally {
@@ -2005,13 +3246,31 @@ export function AdminPanel({
   );
   const hiddenModelsCount = siteContent.models.filter((model) => model.hiddenOnHome).length;
   const normalizedModelSearchQuery = modelSearchQuery.trim().toLowerCase();
-  const filteredModels = normalizedModelSearchQuery
+  const searchedModels = normalizedModelSearchQuery
     ? siteContent.models.filter((model) =>
         [model.name, model.handle, model.tagline]
           .filter(Boolean)
           .some((value) => value.toLowerCase().includes(normalizedModelSearchQuery)),
       )
     : siteContent.models;
+  const filteredModels = [...searchedModels].sort((left, right) => {
+    if (modelListSort === 'az') {
+      return left.name.localeCompare(right.name, 'pt-BR', { sensitivity: 'base' });
+    }
+
+    const leftContentCount = left.gallery.length + (left.fullContentVideos?.length ?? 0);
+    const rightContentCount = right.gallery.length + (right.fullContentVideos?.length ?? 0);
+
+    if (modelListSort === 'content') {
+      if (rightContentCount !== leftContentCount) {
+        return rightContentCount - leftContentCount;
+      }
+
+      return right.name.localeCompare(left.name, 'pt-BR', { sensitivity: 'base' });
+    }
+
+    return siteContent.models.indexOf(right) - siteContent.models.indexOf(left);
+  });
   const selectedDesktopModel =
     siteContent.models.find((model) => model.id === selectedDesktopModelId) ?? null;
   const isDesktopModelFocused = Boolean(selectedDesktopModel);
@@ -2064,6 +3323,21 @@ export function AdminPanel({
                 assets: files,
               }))
             }
+            onRemoveFile={(_file, index) =>
+              updateInlineMediaDraft(model.id, (current) => {
+                const removedFile = current.assets[index] ?? null;
+
+                if (removedFile) {
+                  applyVideoTrimSelection(removedFile, null);
+                }
+
+                return {
+                  ...current,
+                  assets: current.assets.filter((_, assetIndex) => assetIndex !== index),
+                };
+              })
+            }
+            renderPreviewFooter={renderVideoTrimFooter}
             helper="Selecione imagens e videos juntos. O conteudo entra direto nessa modelo."
             disabled={Boolean(activeTask)}
           />
@@ -2332,12 +3606,13 @@ export function AdminPanel({
             </span>
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr),220px] xl:items-start">
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr),280px] xl:items-start">
             <div>
               {fullContentItems.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-2">
                   {fullContentItems.map((item) => {
                     const itemHref = getModelFullContentHref(model, item.routeToken);
+                    const versionedVideoUrl = getVersionedAssetUrl(item.videoUrl);
 
                     return (
                       <article
@@ -2347,7 +3622,7 @@ export function AdminPanel({
                         <div className="aspect-[16/10] bg-zinc-950">
                           <AutoplayMedia
                             type="video"
-                            src={item.videoUrl}
+                            src={versionedVideoUrl}
                             poster={model.coverImage}
                             alt={item.title}
                             className="h-full w-full"
@@ -2380,6 +3655,22 @@ export function AdminPanel({
                           >
                             {itemHref}
                           </a>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openExistingVideoTrimDialog({
+                                assetUrl: item.videoUrl,
+                                previewSrc: versionedVideoUrl,
+                                title: item.title,
+                                taskId: `trim-full-content-${item.id}`,
+                                successMessage: 'Video exclusivo cortado e substituido com sucesso.',
+                              })
+                            }
+                            disabled={Boolean(activeTask)}
+                            className="inline-flex min-h-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Cortar video
+                          </button>
                         </div>
                       </article>
                     );
@@ -2392,8 +3683,39 @@ export function AdminPanel({
               )}
             </div>
 
-            <div className="grid gap-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-3.5 xl:self-start">
-              <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05]">
+            <div className="grid gap-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-4 xl:self-start">
+              <label
+                tabIndex={Boolean(activeTask) ? -1 : 0}
+                onPaste={(event) => {
+                  if (activeTask) {
+                    return;
+                  }
+
+                  const pastedFiles = getAcceptedClipboardFiles(event, 'video/*', false);
+
+                  if (pastedFiles.length === 0) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  setFullContentFiles((current) => ({
+                    ...current,
+                    [model.id]: pastedFiles[0] ?? null,
+                  }));
+                }}
+                onKeyDown={(event) => {
+                  if (Boolean(activeTask)) {
+                    return;
+                  }
+
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    const input = event.currentTarget.querySelector('input[type=\"file\"]');
+                    input?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  }
+                }}
+                className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-white/80 transition hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-white/15"
+              >
                 <input
                   type="file"
                   accept="video/*"
@@ -2406,14 +3728,55 @@ export function AdminPanel({
                     }))
                   }
                 />
-                {currentFullContentFile
-                  ? `Selecionado: ${currentFullContentFile.name}`
-                  : 'Selecionar video exclusivo'}
+                <div className="grid gap-3">
+                  <span className="block min-w-0 truncate">
+                    {currentFullContentFile
+                      ? `Selecionado: ${currentFullContentFile.name}`
+                      : 'Selecionar video exclusivo'}
+                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void handlePasteFullContentVideo(model.id);
+                      }}
+                      disabled={
+                        Boolean(activeTask) ||
+                        clipboardReadingTargetId === `full-content-paste-${model.id}`
+                      }
+                      className="inline-flex min-h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {clipboardReadingTargetId === `full-content-paste-${model.id}`
+                        ? 'Colando...'
+                        : 'Colar'}
+                    </button>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+                      Ctrl+V
+                    </span>
+                  </div>
+                </div>
               </label>
 
+              <p className="text-xs leading-5 text-white/45">
+                Toque em <strong className="text-white/70">Colar</strong> no iPhone.
+              </p>
+
               {currentFullContentFile ? (
-                <div className="w-[118px] max-w-full">
-                  <PendingMediaPreview file={currentFullContentFile} />
+                <div className="mx-auto w-full max-w-[240px] overflow-hidden rounded-[20px] border border-white/10 bg-black">
+                  <PendingMediaPreview
+                    file={currentFullContentFile}
+                    aspectClassName="aspect-video"
+                    footer={renderVideoTrimFooter(currentFullContentFile)}
+                    onRemove={() => {
+                      applyVideoTrimSelection(currentFullContentFile, null);
+                      setFullContentFiles((current) => ({
+                        ...current,
+                        [model.id]: null,
+                      }));
+                    }}
+                  />
                 </div>
               ) : null}
 
@@ -2433,6 +3796,19 @@ export function AdminPanel({
               {getTaskProgress(fullContentTaskId) ? (
                 <TaskProgressBar progress={getTaskProgress(fullContentTaskId)!} />
               ) : null}
+
+              <ClipboardPasteDialog
+                isOpen={fullContentPasteDialogModelId === model.id}
+                title={`Colar video exclusivo em ${model.name}`}
+                accept="video/*"
+                onFiles={(pastedFiles) =>
+                  setFullContentFiles((current) => ({
+                    ...current,
+                    [model.id]: pastedFiles[0] ?? null,
+                  }))
+                }
+                onClose={() => setFullContentPasteDialogModelId(null)}
+              />
             </div>
           </div>
         </div>
@@ -2441,12 +3817,16 @@ export function AdminPanel({
           <p className="text-sm text-zinc-400">Essa modelo ainda nao tem conteudo cadastrado.</p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
-            {model.gallery.map((item) => (
+            {model.gallery.map((item) => {
+              const versionedMediaSrc =
+                item.type === 'video' && item.src ? getVersionedAssetUrl(item.src) : item.src;
+
+              return (
               <div key={item.id} className="relative overflow-hidden rounded-2xl">
                 <div className="aspect-[4/5] bg-zinc-950">
                   <AutoplayMedia
                     type={item.type}
-                    src={item.src}
+                    src={versionedMediaSrc}
                     poster={item.thumbnail}
                     alt={item.title}
                     className="h-full w-full"
@@ -2456,14 +3836,48 @@ export function AdminPanel({
                 </div>
                 <button
                   type="button"
+                  onClick={() =>
+                    void handleToggleMediaFavorite(model.id, item.id, Boolean(item.favorite))
+                  }
+                  disabled={Boolean(activeTask)}
+                  title={item.favorite ? 'Remover dos favoritos' : 'Favoritar previa'}
+                  className={`absolute left-2 top-2 rounded-full border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 ${
+                    item.favorite
+                      ? 'border-amber-300/40 bg-amber-400/20 text-amber-200'
+                      : 'border-white/10 bg-black/55 text-white/60'
+                  }`}
+                >
+                  <StarIcon className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => void handleRemoveMedia(model.id, item.id)}
                   disabled={Boolean(activeTask)}
                   className="absolute right-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   X
                 </button>
+                {item.type === 'video' && item.src ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openExistingVideoTrimDialog({
+                        assetUrl: item.src || '',
+                        previewSrc: versionedMediaSrc || '',
+                        title: item.title,
+                        taskId: `trim-media-${item.id}`,
+                        successMessage: 'Previa em video cortada e substituida com sucesso.',
+                      })
+                    }
+                    disabled={Boolean(activeTask)}
+                    className="absolute bottom-2 left-2 rounded-full border border-white/10 bg-black/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cortar
+                  </button>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -2507,25 +3921,35 @@ export function AdminPanel({
                       : 'Recolher lista de modelos'
                   }
                 >
-                  {isDesktopModelRailCollapsed ? '\u203A' : '\u2039'}
+                  {isDesktopModelRailCollapsed ? '›' : '‹'}
                 </button>
               </div>
 
               {!isDesktopModelRailCollapsed ? (
-                <div className="pb-3">
+                <div className="grid gap-2 pb-3">
                   <input
                     value={modelSearchQuery}
                     onChange={(event) => setModelSearchQuery(event.target.value)}
                     className={fieldClassName()}
                     placeholder="Pesquisar modelo..."
                   />
+                  <select
+                    value={modelListSort}
+                    onChange={(event) => setModelListSort(event.target.value as ModelListSort)}
+                    className={fieldClassName()}
+                    style={{ colorScheme: 'dark' }}
+                  >
+                    <option value="latest" className="bg-zinc-950 text-white">Ultimas add</option>
+                    <option value="az" className="bg-zinc-950 text-white">A - Z</option>
+                    <option value="content" className="bg-zinc-950 text-white">Com mais conteudo</option>
+                  </select>
                 </div>
               ) : null}
 
               {filteredModels.length > 0 ? (
                 <div className="hide-scrollbar max-h-[calc(100vh-80px)] space-y-2 overflow-y-auto pr-1">
                   {filteredModels.map((model) => {
-                    const fullContentItems = model.fullContentVideos || [];
+                    const contentCounts = getModelContentCounts(model);
                     const isSelected = selectedDesktopModel?.id === model.id;
 
                     return (
@@ -2583,18 +4007,9 @@ export function AdminPanel({
                             {model.handle ? (
                               <div className="truncate text-sm text-white/58">{model.handle}</div>
                             ) : null}
-                            <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-white/60">
-                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                                {model.gallery.length} previas
-                              </span>
-                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                                {fullContentItems.length} exclusivos
-                              </span>
-                              {model.hiddenOnHome ? (
-                                <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2 py-1 text-amber-100">
-                                  Oculta
-                                </span>
-                              ) : null}
+                            <div className="mt-1 truncate text-[10px] text-white/60">
+                              {contentCounts.previews} previas | {contentCounts.images} imagens | {contentCounts.exclusives} exclusivos
+                              {model.hiddenOnHome ? ' | Oculta' : ''}
                             </div>
                           </div>
                         ) : null}
@@ -2667,7 +4082,7 @@ export function AdminPanel({
                 <p className="leading-6 text-red-50/90">
                   Essa acao apaga todo o conteudo salvo no projeto. As midias em{' '}
                   <code className="rounded bg-black/20 px-1 py-0.5 text-red-50">storage/uploads</code>{' '}
-                  continuam no disco, mas a home e o painel ficam vazios ate reconstruir o JSON.
+                  podem ser mantidas ou apagadas na confirmacao final.
                 </p>
               </div>
 
@@ -2911,6 +4326,21 @@ export function AdminPanel({
                     assets: files,
                   }))
                 }
+                onRemoveFile={(_file, index) =>
+                  setMediaFiles((current) => {
+                    const removedFile = current.assets[index] ?? null;
+
+                    if (removedFile) {
+                      applyVideoTrimSelection(removedFile, null);
+                    }
+
+                    return {
+                      ...current,
+                      assets: current.assets.filter((_, assetIndex) => assetIndex !== index),
+                    };
+                  })
+                }
+                renderPreviewFooter={renderVideoTrimFooter}
                 helper="Selecione imagens e videos juntos. Se quiser enviar um unico arquivo, use este mesmo campo."
                 disabled={Boolean(activeTask) || isLoading}
               />
@@ -3142,16 +4572,28 @@ export function AdminPanel({
             className="xl:hidden"
           >
             <div className="grid gap-3 xl:hidden">
-              <input
-                value={modelSearchQuery}
-                onChange={(event) => setModelSearchQuery(event.target.value)}
-                className={fieldClassName()}
-                placeholder="Pesquisar modelo..."
-              />
+              <div className="grid gap-2">
+                <input
+                  value={modelSearchQuery}
+                  onChange={(event) => setModelSearchQuery(event.target.value)}
+                  className={fieldClassName()}
+                  placeholder="Pesquisar modelo..."
+                />
+                <select
+                  value={modelListSort}
+                  onChange={(event) => setModelListSort(event.target.value as ModelListSort)}
+                  className={fieldClassName()}
+                  style={{ colorScheme: 'dark' }}
+                >
+                  <option value="latest" className="bg-zinc-950 text-white">Ultimas add</option>
+                  <option value="az" className="bg-zinc-950 text-white">A - Z</option>
+                  <option value="content" className="bg-zinc-950 text-white">Com mais conteudo</option>
+                </select>
+              </div>
 
               {filteredModels.map((model) => {
                 const isExpanded = expandedModelId === model.id;
-                const fullContentItems = model.fullContentVideos || [];
+                const contentCounts = getModelContentCounts(model);
 
                 return (
                   <article
@@ -3182,8 +4624,8 @@ export function AdminPanel({
                           {model.handle ? (
                             <p className="truncate text-sm text-zinc-300">{model.handle}</p>
                           ) : null}
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">
-                            {model.gallery.length} conteudo(s) | {fullContentItems.length} completo(s)
+                          <p className="mt-1 text-[10px] tracking-[0.08em] text-white/45 sm:text-[11px]">
+                            {contentCounts.previews} previas | {contentCounts.images} imagens | {contentCounts.exclusives} exclusivos
                           </p>
                           {model.hiddenOnHome ? (
                             <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-amber-200/85">
@@ -3215,6 +4657,10 @@ export function AdminPanel({
 
           {selectedDesktopModel ? (
             <section className="hidden xl:block rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+              {(() => {
+                const contentCounts = getModelContentCounts(selectedDesktopModel);
+
+                return (
               <div className="space-y-5">
                 <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
                   <div className="flex min-w-0 items-center gap-4">
@@ -3236,15 +4682,18 @@ export function AdminPanel({
                           {selectedDesktopModel.handle}
                         </p>
                       ) : null}
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/70">
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-                          {selectedDesktopModel.gallery.length} conteudo(s)
+                      <div className="hide-scrollbar mt-3 flex flex-nowrap gap-1 overflow-x-auto pr-1 text-[10px] text-white/70">
+                        <span className="whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+                          {contentCounts.previews} previas
                         </span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-                          {(selectedDesktopModel.fullContentVideos || []).length} exclusivo(s)
+                        <span className="whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+                          {contentCounts.images} imagens
+                        </span>
+                        <span className="whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5">
+                          {contentCounts.exclusives} exclusivos
                         </span>
                         {selectedDesktopModel.hiddenOnHome ? (
-                          <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-amber-100">
+                          <span className="whitespace-nowrap rounded-full border border-amber-400/20 bg-amber-500/10 px-2 py-0.5 text-amber-100">
                             Oculta da home
                           </span>
                         ) : null}
@@ -3255,6 +4704,8 @@ export function AdminPanel({
 
                 {renderModelManagementBody(selectedDesktopModel)}
               </div>
+                );
+              })()}
             </section>
           ) : null}
 
@@ -3566,6 +5017,42 @@ export function AdminPanel({
           </section>
         </div>
       </div>
+      <VideoTrimDialog
+        state={videoTrimDialogState}
+        initialSelection={
+          videoTrimDialogState?.kind === 'draft'
+            ? getVideoTrimSelection(videoTrimDialogState.file)
+            : null
+        }
+        onApply={(selection) => {
+          if (!videoTrimDialogState) {
+            return;
+          }
+
+          if (videoTrimDialogState.kind === 'draft') {
+            applyVideoTrimSelection(videoTrimDialogState.file, selection);
+            return;
+          }
+
+          void handleTrimExistingVideo({
+            assetUrl: videoTrimDialogState.src,
+            startSeconds: selection.startSeconds,
+            endSeconds: selection.endSeconds,
+            taskId: videoTrimDialogState.taskId,
+            successMessage: videoTrimDialogState.successMessage,
+          });
+        }}
+        onClear={() => {
+          if (!videoTrimDialogState) {
+            return;
+          }
+
+          if (videoTrimDialogState.kind === 'draft') {
+            applyVideoTrimSelection(videoTrimDialogState.file, null);
+          }
+        }}
+        onClose={() => setVideoTrimDialogState(null)}
+      />
       </div>
     </div>
     </div>

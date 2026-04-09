@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AdminLogin } from './components/AdminLogin';
 import { AdminCommentsPage } from './components/AdminCommentsPage';
 import { AdminPanel } from './components/AdminPanel';
@@ -66,7 +66,11 @@ function buildHeroBackgroundPool(
     .filter((image, index, images) => images.indexOf(image) === index);
 }
 
-function pickRandomHeroBackground(pool: string[], currentBackground?: string | null) {
+function pickRandomHeroBackground(
+  pool: string[],
+  recentBackgrounds: string[] = [],
+  currentBackground?: string | null,
+) {
   if (pool.length === 0) {
     return heroBackdrop;
   }
@@ -75,10 +79,13 @@ function pickRandomHeroBackground(pool: string[], currentBackground?: string | n
     return pool[0] || heroBackdrop;
   }
 
-  const filteredPool = currentBackground
-    ? pool.filter((item) => item !== currentBackground)
-    : pool;
-  const nextPool = filteredPool.length > 0 ? filteredPool : pool;
+  const maxRecentEntries = Math.max(0, Math.min(5, pool.length - 1));
+  const recentSet = new Set(recentBackgrounds.slice(-maxRecentEntries));
+  const nonRecentPool = pool.filter((item) => !recentSet.has(item));
+  const filteredPool = (nonRecentPool.length > 0 ? nonRecentPool : pool).filter(
+    (item) => item !== currentBackground,
+  );
+  const nextPool = filteredPool.length > 0 ? filteredPool : nonRecentPool.length > 0 ? nonRecentPool : pool;
   const randomIndex = Math.floor(Math.random() * nextPool.length);
   return nextPool[randomIndex] || pool[0] || heroBackdrop;
 }
@@ -139,13 +146,24 @@ export default function App() {
   const [currentView, setCurrentView] = useState(getCurrentView);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [selectedStaticInfo, setSelectedStaticInfo] = useState<StaticInfoKey | null>(null);
-  const [videoPreviewCards, setVideoPreviewCards] = useState<PreviewCard[]>([]);
-  const [imagePreviewCards, setImagePreviewCards] = useState<PreviewCard[]>([]);
   const [heroBackgroundPool, setHeroBackgroundPool] = useState<string[]>([]);
   const [heroBackgroundSrc, setHeroBackgroundSrc] = useState<string | null>(null);
   const heroBackgroundCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const heroBackgroundHistoryRef = useRef<string[]>([]);
   const { siteContent, isLoading: isSiteLoading, ...actions } = useSiteContent();
   const adminAuth = useAdminAuth();
+  const visibleHomeModels = useMemo(
+    () => siteContent.models.filter((model) => !model.hiddenOnHome),
+    [siteContent.models],
+  );
+  const videoPreviewCards = useMemo(
+    () => getRandomPreviewCardsByType(visibleHomeModels, 'video', 12),
+    [visibleHomeModels],
+  );
+  const imagePreviewCards = useMemo(
+    () => getRandomPreviewCardsByType(visibleHomeModels, 'image', 10),
+    [visibleHomeModels],
+  );
 
   useLayoutEffect(() => {
     if (
@@ -275,13 +293,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const visibleModels = siteContent.models.filter((model) => !model.hiddenOnHome);
-    setVideoPreviewCards(getRandomPreviewCardsByType(visibleModels, 'video', 7));
-    setImagePreviewCards(getRandomPreviewCardsByType(visibleModels, 'image', 10));
-  }, [siteContent.models]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || currentView.type !== 'site') {
       return;
     }
 
@@ -307,7 +319,7 @@ export default function App() {
           return current;
         }
 
-        return pickRandomHeroBackground(nextPool);
+        return pickRandomHeroBackground(nextPool, heroBackgroundHistoryRef.current, current);
       });
     };
 
@@ -325,15 +337,40 @@ export default function App() {
         legacyMediaQuery.removeListener(syncBackgroundPool);
       }
     };
-  }, [isSiteLoading, siteContent.heroBackgrounds.desktop, siteContent.heroBackgrounds.mobile]);
+  }, [
+    currentView.type,
+    isSiteLoading,
+    siteContent.heroBackgrounds.desktop,
+    siteContent.heroBackgrounds.mobile,
+  ]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !heroBackgroundSrc || heroBackgroundPool.length <= 1) {
+    if (!heroBackgroundSrc) {
+      return;
+    }
+
+    heroBackgroundHistoryRef.current = [
+      ...heroBackgroundHistoryRef.current.filter((item) => item !== heroBackgroundSrc),
+      heroBackgroundSrc,
+    ].slice(-5);
+  }, [heroBackgroundSrc]);
+
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      currentView.type !== 'site' ||
+      !heroBackgroundSrc ||
+      heroBackgroundPool.length <= 1
+    ) {
       return;
     }
 
     let cancelled = false;
-    const nextBackground = pickRandomHeroBackground(heroBackgroundPool, heroBackgroundSrc);
+    const nextBackground = pickRandomHeroBackground(
+      heroBackgroundPool,
+      heroBackgroundHistoryRef.current,
+      heroBackgroundSrc,
+    );
     const cachedImage = heroBackgroundCacheRef.current.get(nextBackground);
 
     const ensureCachedImage = () => {
@@ -354,8 +391,8 @@ export default function App() {
       }
     };
 
+    const image = ensureCachedImage();
     const timeoutId = window.setTimeout(() => {
-      const image = ensureCachedImage();
 
       if (image.complete) {
         applyBackground();
@@ -370,28 +407,10 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [heroBackgroundPool, heroBackgroundSrc]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || heroBackgroundPool.length === 0) {
-      return;
-    }
-
-    heroBackgroundPool.forEach((backgroundSrc) => {
-      if (!backgroundSrc || heroBackgroundCacheRef.current.has(backgroundSrc)) {
-        return;
-      }
-
-      const image = new Image();
-      image.decoding = 'async';
-      image.src = backgroundSrc;
-      heroBackgroundCacheRef.current.set(backgroundSrc, image);
-    });
-  }, [heroBackgroundPool]);
+  }, [currentView.type, heroBackgroundPool, heroBackgroundSrc]);
 
   const selectedModel =
     siteContent.models.find((model) => model.id === selectedModelId) ?? null;
-  const visibleHomeModels = siteContent.models.filter((model) => !model.hiddenOnHome);
   const handlePreviewOwnerSelect = (card: PreviewCard) => {
     const nextModelId =
       visibleHomeModels.find((model) => model.id === card.ownerId)?.id ?? null;
@@ -546,11 +565,11 @@ export default function App() {
           <PreviewCarousel
             id="previas"
             eyebrow="AllPrivacy.site"
-            title={'V\u00eddeos (Pr\u00e9vias)'}
+            title={'Vídeos (Prévias)'}
             description=""
             items={videoPreviewCards}
             emptyMessage={
-              'Nenhum v\u00eddeo cadastrado ainda. Adicione v\u00eddeos pelo painel admin para preencher esta faixa.'
+              'Nenhum vídeo cadastrado ainda. Adicione vídeos pelo painel admin para preencher esta faixa.'
             }
             ctaHref={homeEntryHref}
             ctaLabel="Entrar no Grupo"
@@ -559,6 +578,7 @@ export default function App() {
             desktopInitialScrollIndex={0}
             scrollAlign="center"
             desktopScrollAlign="start"
+            preloadAdjacentVideoCards={1}
           />
 
           <PreviewCarousel
@@ -602,6 +622,7 @@ export default function App() {
 
       <ModelModal
         model={selectedModel}
+        models={siteContent.models}
         onClose={() => setSelectedModelId(null)}
         ctaHref={selectedModelEntryHref}
       />

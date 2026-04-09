@@ -92,6 +92,8 @@ function buildGroupUrl(groupUrl, siteUrl) {
   return normalizeBaseUrl(groupUrl) || buildHomeUrl(siteUrl);
 }
 
+const previewVideoCacheRefreshCutoffMs = Date.parse('2026-04-09T00:00:00.000Z');
+
 function buildAbsoluteAssetUrl(siteUrl, assetUrl) {
   const normalizedAssetUrl = toText(assetUrl);
 
@@ -550,7 +552,7 @@ function getPreviewUsage(customer, previewWindowMs) {
 function buildStartKeyboard(
   options,
   previewUsage = { canUse: true },
-  previewButtonLabel = 'Ver previas',
+  previewButtonLabel = 'Ver prévias',
   hasActiveAccess = false,
   modelSlug = 'home',
 ) {
@@ -587,7 +589,7 @@ function buildStartKeyboard(
 async function buildStartKeyboardForChat(
   chatId,
   options,
-  previewButtonLabel = 'Ver previas',
+  previewButtonLabel = 'Ver prévias',
   modelSlug = 'home',
 ) {
   const customer = await options.billingStore.getCustomer(chatId);
@@ -603,7 +605,7 @@ async function buildStartKeyboardForChat(
 
 function buildPaymentKeyboard(payment, paymentConfig) {
   const rows = [
-    [{ text: '✅ Ja paguei, verificar', callback_data: `verify:${payment.id}` }],
+          [{ text: '✅ Já paguei, verificar', callback_data: `verify:${payment.id}` }],
     ...(paymentConfig.simulationEnabled
       ? [[{ text: '🧪 Simular pagamento', callback_data: `simulate-pay:${payment.id}` }]]
       : []),
@@ -832,6 +834,7 @@ function getRandomSitewideMediaSelection(siteContent, recentPreviewKeys = new Se
   const models = Array.isArray(siteContent?.models) ? siteContent.models : [];
   const videos = [];
   const images = [];
+  const allMedia = [];
 
   for (const model of models) {
     const modelSlug = getModelRouteSlug(model);
@@ -839,11 +842,15 @@ function getRandomSitewideMediaSelection(siteContent, recentPreviewKeys = new Se
 
     for (const item of gallery) {
       if (item.type === 'video' && toText(item.src)) {
-        videos.push({ ...item, modelSlug, modelName: model.name });
+        const nextItem = { ...item, modelSlug, modelName: model.name };
+        videos.push(nextItem);
+        allMedia.push(nextItem);
       }
 
       if (item.type === 'image' && toText(item.thumbnail)) {
-        images.push({ ...item, modelSlug, modelName: model.name });
+        const nextItem = { ...item, modelSlug, modelName: model.name };
+        images.push(nextItem);
+        allMedia.push(nextItem);
       }
     }
   }
@@ -856,7 +863,86 @@ function getRandomSitewideMediaSelection(siteContent, recentPreviewKeys = new Se
     recentPreviewKeys,
   );
 
-  return [...selectedVideos, ...selectedImages];
+  const selection = [...selectedVideos, ...selectedImages];
+
+  if (selection.length < 3) {
+    const selectedIds = new Set(selection.map((item) => item.id));
+    const remainingMedia = shuffleWithPreviewVariety(
+      allMedia.filter((item) => !selectedIds.has(item.id)),
+      recentPreviewKeys,
+    );
+
+    for (const item of remainingMedia) {
+      if (selection.length >= 3) {
+        break;
+      }
+
+      selection.push(item);
+    }
+  }
+
+  return selection.slice(0, 3);
+}
+
+function getRandomFavoriteSitewideMediaSelection(siteContent, recentPreviewKeys = new Set()) {
+  const models = Array.isArray(siteContent?.models) ? siteContent.models : [];
+  const favoriteVideos = [];
+  const favoriteImages = [];
+
+  for (const model of models) {
+    const modelSlug = getModelRouteSlug(model);
+    const gallery = Array.isArray(model.gallery) ? model.gallery : [];
+
+    for (const item of gallery) {
+      if (!item.favorite) {
+        continue;
+      }
+
+      if (item.type === 'video' && toText(item.src)) {
+        favoriteVideos.push({ ...item, modelSlug, modelName: model.name });
+        continue;
+      }
+
+      if (item.type === 'image' && toText(item.thumbnail)) {
+        favoriteImages.push({ ...item, modelSlug, modelName: model.name });
+      }
+    }
+  }
+
+  const selection = [];
+  const usedKeys = new Set();
+
+  for (const item of shuffleWithPreviewVariety(favoriteVideos, recentPreviewKeys)) {
+    const mediaKey = buildPreviewMediaKey(item);
+
+    if (!mediaKey || usedKeys.has(mediaKey)) {
+      continue;
+    }
+
+    selection.push(item);
+    usedKeys.add(mediaKey);
+
+    if (selection.length >= 3) {
+      return selection;
+    }
+  }
+
+  for (const item of shuffleWithPreviewVariety(favoriteImages, recentPreviewKeys)) {
+    const mediaKey = buildPreviewMediaKey(item);
+
+    if (!mediaKey || usedKeys.has(mediaKey)) {
+      continue;
+    }
+
+    selection.push(item);
+    usedKeys.add(mediaKey);
+
+    if (selection.length >= 3) {
+      break;
+    }
+  }
+
+  return selection;
 }
 
 async function consumePreviewUsage(chatId, options) {
@@ -917,7 +1003,7 @@ function buildModelKeyboard(model, siteUrl, groupUrl) {
 
   rows.push([
     {
-      text: 'Abrir pagina da modelo',
+          text: 'Abrir página da modelo',
       url: buildModelUrl(options.siteUrl, model),
     },
   ]);
@@ -940,6 +1026,7 @@ function createTelegramFileCache(cacheFilePath) {
         fileId: '',
         signature: '',
         legacy: false,
+        updatedAt: '',
       };
     }
 
@@ -948,6 +1035,7 @@ function createTelegramFileCache(cacheFilePath) {
         fileId: toText(entry),
         signature: '',
         legacy: true,
+        updatedAt: '',
       };
     }
 
@@ -956,6 +1044,7 @@ function createTelegramFileCache(cacheFilePath) {
         fileId: toText(entry.fileId || entry.file_id || entry.id),
         signature: toText(entry.signature),
         legacy: false,
+        updatedAt: toText(entry.updatedAt),
       };
     }
 
@@ -963,6 +1052,7 @@ function createTelegramFileCache(cacheFilePath) {
       fileId: '',
       signature: '',
       legacy: false,
+      updatedAt: '',
     };
   }
 
@@ -994,6 +1084,7 @@ function createTelegramFileCache(cacheFilePath) {
           fileId: '',
           signature: '',
           legacy: false,
+          updatedAt: '',
           cacheFileUpdatedAtMs: 0,
         };
       }
@@ -1455,6 +1546,24 @@ async function rebuildFreshMediaSource(mediaSource, mediaRetryOptions) {
   );
 }
 
+function shouldRefreshPreviewVideoCache(cacheEntry) {
+  if (!cacheEntry || !toText(cacheEntry.fileId)) {
+    return false;
+  }
+
+  if (cacheEntry.legacy) {
+    return true;
+  }
+
+  const updatedAtMs = Date.parse(toText(cacheEntry.updatedAt));
+
+  if (!Number.isFinite(updatedAtMs)) {
+    return true;
+  }
+
+  return updatedAtMs < previewVideoCacheRefreshCutoffMs;
+}
+
 async function resolveTelegramMediaSourceForCacheWarm(assetUrl, options, skipCache = false) {
   const normalizedAssetUrl = toText(assetUrl);
 
@@ -1501,11 +1610,21 @@ async function resolveTelegramMediaSourceForCacheWarm(assetUrl, options, skipCac
 async function buildPreviewMediaSources(items, options) {
   return Promise.all(
     items.map(async (item) => {
+      if (item.type === 'video') {
+        const videoAssetUrl = toText(item.src);
+        const cacheEntry = await options.telegramFileCache?.getEntry?.(videoAssetUrl);
+
+        if (shouldRefreshPreviewVideoCache(cacheEntry)) {
+          await options.telegramFileCache?.delete?.(videoAssetUrl);
+        }
+      }
+
       const mediaSource = await resolveTelegramMediaSource(
         item.type === 'video' ? item.src : item.thumbnail,
         options.siteUrl,
         options.resolveLocalAssetPath,
         options.telegramFileCache,
+        false,
       );
 
       if (!mediaSource) {
@@ -1644,7 +1763,9 @@ async function sendPreviewMediaSelection(
   options,
   loadingOptions = {},
 ) {
-  const mediaSources = await buildPreviewMediaSources(items, options);
+  const mediaSources = (await buildPreviewMediaSources(items, options)).map(
+    ({ width, height, ...item }) => item,
+  );
 
   if (mediaSources.length === 0) {
     return null;
@@ -1676,10 +1797,7 @@ async function sendPreviewMediaSelection(
           chatId,
           singleItem.media,
           loadingOptions.caption || '',
-          {
-            ...(singleItem.width ? { width: singleItem.width } : {}),
-            ...(singleItem.height ? { height: singleItem.height } : {}),
-          },
+          {},
           options.telegramFileCache,
           mediaRetryOptions,
         );
@@ -1696,13 +1814,63 @@ async function sendPreviewMediaSelection(
       );
     }
 
-    return await sendMediaGroup(
-      token,
-      chatId,
-      mediaSources,
-      options.telegramFileCache,
-      mediaRetryOptions,
-    );
+    try {
+      return await sendMediaGroup(
+        token,
+        chatId,
+        mediaSources,
+        options.telegramFileCache,
+        mediaRetryOptions,
+      );
+    } catch (error) {
+      logBot('Falha ao enviar media group de prévias. Tentando fallback individual.', {
+        chatId,
+        totalMidias: mediaSources.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      const fallbackResults = [];
+
+      for (const mediaItem of mediaSources) {
+        try {
+          const message =
+            mediaItem.type === 'video'
+              ? await sendVideo(
+                  token,
+                  chatId,
+                  mediaItem.media,
+                  '',
+                  {},
+                  options.telegramFileCache,
+                  mediaRetryOptions,
+                )
+              : await sendPhoto(
+                  token,
+                  chatId,
+                  mediaItem.media,
+                  '',
+                  {},
+                  options.telegramFileCache,
+                  mediaRetryOptions,
+                );
+
+          fallbackResults.push(message);
+        } catch (itemError) {
+          logBot('Prévia ignorada após falha individual.', {
+            chatId,
+            mediaType: mediaItem.type,
+            assetUrl: mediaItem.media?.assetUrl || '',
+            error: itemError instanceof Error ? itemError.message : String(itemError),
+          });
+        }
+      }
+
+      if (fallbackResults.length > 0) {
+        return fallbackResults;
+      }
+
+      throw error;
+    }
   } finally {
     await loadingController.stop();
   }
@@ -2253,7 +2421,7 @@ async function sendActiveSubscriptionMessage(token, chatId, subscription, option
     return sendText(
       token,
       chatId,
-      '🔐 Voce ainda nao tem um acesso ativo.\n\n💳 Gere o Pix para liberar sua entrada no grupo privado.',
+      '🔐 Você ainda não tem um acesso ativo.\n\n💳 Gere o Pix para liberar sua entrada no grupo privado.',
       {
         reply_markup: await buildStartKeyboardForChat(chatId, options),
       },
@@ -2389,7 +2557,7 @@ async function sendPixInstructions(token, chatId, payment, options) {
       '<b>💳 PIX Gerado</b>',
       paymentCode ? `<code>${escapeHtml(paymentCode)}</code>` : '',
       dueText ? `<b>⏰ Validade:</b> ${escapeHtml(dueText)}` : '',
-      !paymentCode ? 'A Syncpay nao retornou o codigo Pix.' : '',
+      !paymentCode ? 'A Syncpay não retornou o código Pix.' : '',
     ]
       .filter(Boolean)
       .join('\n\n'),
@@ -2457,11 +2625,11 @@ function buildPendingPaymentReminderText(payment, options) {
   const planLabel = getPaymentReminderPlanLabel(payment, options);
 
   return [
-    '⚠️ Notamos que voce ainda nao concluiu o pagamento.',
+      '⚠️ Notamos que você ainda não concluiu o pagamento.',
     '',
-    `Para garantir acesso ao <b>AllPrivacyVIP - ${escapeHtml(planLabel)}</b>, finalize seu pagamento o quanto antes. Assim que o pagamento for aprovado, o acesso sera liberado imediatamente!`,
+      `Para garantir acesso ao <b>AllPrivacyVIP - ${escapeHtml(planLabel)}</b>, finalize seu pagamento o quanto antes. Assim que o pagamento for aprovado, o acesso será liberado imediatamente!`,
     '',
-    '✅ Realize o pagamento agora para nao perder essa oportunidade! ✅',
+      '✅ Realize o pagamento agora para não perder essa oportunidade! ✅',
   ].join('\n');
 }
 
@@ -2470,13 +2638,13 @@ async function sendPaymentCopyCode(token, chatId, paymentId, options, callbackId
 
   if (!payment || payment.chatId !== String(chatId)) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse Pix.', {
+      await answerCallbackQuery(token, callbackId, 'Não encontrei esse Pix.', {
         show_alert: true,
       });
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+    return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
   const paymentCode =
@@ -2484,13 +2652,13 @@ async function sendPaymentCopyCode(token, chatId, paymentId, options, callbackId
 
   if (!paymentCode) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Esse Pix nao tem codigo disponivel.', {
+      await answerCallbackQuery(token, callbackId, 'Esse Pix não tem código disponível.', {
         show_alert: true,
       });
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Esse Pix nao tem codigo copia e cola disponivel agora.');
+    return sendPlainText(token, chatId, 'Esse Pix não tem código copia e cola disponível agora.');
   }
 
   if (callbackId) {
@@ -2515,13 +2683,13 @@ async function sendPaymentQrCode(token, chatId, paymentId, options, callbackId =
 
   if (!payment || payment.chatId !== String(chatId)) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse Pix.', {
+      await answerCallbackQuery(token, callbackId, 'Não encontrei esse Pix.', {
         show_alert: true,
       });
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+    return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
   const paymentCode =
@@ -2529,13 +2697,13 @@ async function sendPaymentQrCode(token, chatId, paymentId, options, callbackId =
 
   if (!paymentCode) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Esse Pix nao tem QRCode disponivel.', {
+      await answerCallbackQuery(token, callbackId, 'Esse Pix não tem QRCode disponível.', {
         show_alert: true,
       });
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Esse Pix nao tem QRCode disponivel agora.');
+    return sendPlainText(token, chatId, 'Esse Pix não tem QRCode disponível agora.');
   }
 
   if (callbackId) {
@@ -2664,13 +2832,13 @@ async function handleChatJoinRequest(token, joinRequest, options) {
     await sendPlainText(
       token,
       telegramUserId,
-      '🚫 Nao encontrei um acesso ativo para liberar sua entrada agora.\n\n💳 Gere ou confirme o Pix no bot e tente novamente.',
+      '🚫 Não encontrei um acesso ativo para liberar sua entrada agora.\n\n💳 Gere ou confirme o Pix no bot e tente novamente.',
       {
         reply_markup: await buildStartKeyboardForChat(telegramUserId, options),
       },
     );
   } catch (error) {
-    logBot('Nao foi possivel avisar usuario sobre entrada recusada.', {
+      logBot('Não foi possível avisar usuário sobre entrada recusada.', {
       chatId,
       telegramUserId,
       error: error instanceof Error ? error.message : String(error),
@@ -2762,7 +2930,7 @@ async function finalizeApprovedPayment(token, payment, options, origin) {
         await sendPlainText(
           token,
           currentPayment.chatId,
-          '✅ Pagamento confirmado, mas nao consegui gerar o link do grupo agora.\n\nToque em "Ja paguei, verificar" novamente em alguns segundos.',
+      '✅ Pagamento confirmado, mas não consegui gerar o link do grupo agora.\n\nToque em "Já paguei, verificar" novamente em alguns segundos.',
         );
       }
 
@@ -2816,11 +2984,11 @@ async function cancelPendingPayment(token, chatId, paymentId, options, callbackI
 
   if (!payment || payment.chatId !== String(chatId)) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse Pix.');
+    await answerCallbackQuery(token, callbackId, 'Não encontrei esse Pix.');
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+    return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
   const cancellation = await options.billingStore.updatePaymentIfStatus(
@@ -2949,7 +3117,7 @@ async function createOrReusePixPayment(
     return sendText(
       token,
       chatId,
-      'Os pagamentos por Pix ainda nao estao configurados. Defina a API ou ative o modo de teste para liberar este fluxo.',
+      'Os pagamentos por Pix ainda não estão configurados. Defina a API ou ative o modo de teste para liberar este fluxo.',
     );
   }
 
@@ -3092,7 +3260,7 @@ async function createOrReusePixPayment(
     return sendPlainText(
       token,
       chatId,
-      `Nao consegui gerar o Pix agora.\n\n${message}`,
+      `Não consegui gerar o Pix agora.\n\n${message}`,
     );
   }
 }
@@ -3102,10 +3270,10 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
 
   if (!payment || payment.chatId !== String(chatId)) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse pagamento.');
+    await answerCallbackQuery(token, callbackId, 'Não encontrei esse pagamento.');
       return null;
     }
-    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+    return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
   if (isFakePixPayment(payment)) {
@@ -3135,13 +3303,13 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
       normalizePlanId(options.paymentConfig.defaultPlanId) ||
       '30d';
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Esse Pix nao tem transacao valida.');
+    await answerCallbackQuery(token, callbackId, 'Esse Pix não tem transação válida.');
       return null;
     }
     return sendPlainText(
       token,
       chatId,
-      'Esse Pix ainda nao tem um id de transacao valido na Syncpay. Gere um novo Pix.',
+      'Esse Pix ainda não tem um id de transação válido na Syncpay. Gere um novo Pix.',
       {
         reply_markup: {
           inline_keyboard: [
@@ -3189,13 +3357,13 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
         token,
         callbackId,
         expiryText
-          ? `Ainda aguardando pagamento. Valido ate ${expiryText}.`
+      ? `Ainda aguardando pagamento. Válido até ${expiryText}.`
           : `Ainda aguardando pagamento. Status: ${currentStatus}.`,
       );
       return null;
     }
 
-    return sendPlainText(token, chatId, `Ainda nao apareceu confirmacao de pagamento na Syncpay.\n\nStatus atual: ${currentStatus}`);
+    return sendPlainText(token, chatId, `Ainda não apareceu confirmação de pagamento na Syncpay.\n\nStatus atual: ${currentStatus}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Falha ao consultar a Syncpay.';
 
@@ -3206,13 +3374,13 @@ async function verifyPendingPayment(token, chatId, paymentId, options, callbackI
     });
 
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao consegui consultar agora.', {
+    await answerCallbackQuery(token, callbackId, 'Não consegui consultar agora.', {
         show_alert: true,
       });
       return null;
     }
 
-    return sendPlainText(token, chatId, `Nao consegui consultar a Syncpay agora.\n\n${message}`);
+    return sendPlainText(token, chatId, `Não consegui consultar a Syncpay agora.\n\n${message}`);
   }
 }
 
@@ -3232,11 +3400,11 @@ async function simulatePaymentApproval(token, chatId, paymentId, options, callba
 
   if (!payment || payment.chatId !== String(chatId)) {
     if (callbackId) {
-      await answerCallbackQuery(token, callbackId, 'Nao encontrei esse Pix.');
+    await answerCallbackQuery(token, callbackId, 'Não encontrei esse Pix.');
       return null;
     }
 
-    return sendPlainText(token, chatId, 'Nao encontrei esse pagamento para o seu chat.');
+    return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
   const simulationLock = await options.billingStore.updatePaymentIfStatus(
@@ -3305,7 +3473,7 @@ async function handleConversationReply(token, message, conversation, readSiteCon
       return sendPlainText(
         token,
         chatId,
-        'Esse email parece invalido. Me envie novamente no formato nome@dominio.com.',
+      'Esse email parece inválido. Me envie novamente no formato nome@dominio.com.',
       );
     }
 
@@ -3328,7 +3496,7 @@ async function handleConversationReply(token, message, conversation, readSiteCon
       return sendPlainText(
         token,
         chatId,
-        'O CPF nao passou na validacao. Envie novamente com 11 numeros validos.',
+      'O CPF não passou na validação. Envie novamente com 11 números válidos.',
       );
     }
 
@@ -3629,7 +3797,7 @@ async function sendModelList(token, chatId, siteContent, siteUrl) {
     return sendText(
       token,
       chatId,
-      'Nenhuma modelo cadastrada ainda. Assim que voce adicionar pelo painel, elas aparecem aqui.',
+      'Nenhuma modelo cadastrada ainda. Assim que você adicionar pelo painel, elas aparecem aqui.',
       {
         reply_markup: {
           inline_keyboard: [[{ text: 'Abrir site', url: buildHomeUrl(siteUrl) }]],
@@ -3638,7 +3806,7 @@ async function sendModelList(token, chatId, siteContent, siteUrl) {
     );
   }
 
-  return sendText(token, chatId, 'Escolha uma modelo para abrir a pagina individual:', {
+    return sendText(token, chatId, 'Escolha uma modelo para abrir a página individual:', {
     reply_markup: {
       inline_keyboard: splitModelsIntoRows(siteContent.models, siteUrl),
     },
@@ -3652,7 +3820,7 @@ async function sendModelDetails(token, chatId, model, options) {
   const mediaPreview = getRandomModelMediaSelection(model, getPreviewRecentKeys(customer));
   const selectedSummary = mediaPreview.map((item) => item.type).join(', ');
 
-  logBot('Enviando previas da modelo.', {
+    logBot('Enviando prévias da modelo.', {
     chatId,
     model: model.name,
     totalMidias: mediaPreview.length,
@@ -3689,9 +3857,9 @@ async function sendModelDetails(token, chatId, model, options) {
   return sendText(
     token,
     chatId,
-    `${caption}\n\nSeparei *3 previas aleatorias* dessa modelo.\n\n${buildPaymentPlansIntro(
+      `${caption}\n\nSeparei *3 prévias aleatórias* dessa modelo.\n\n${buildPaymentPlansIntro(
       options,
-      '💎 Planos disponiveis:',
+          '💎 Planos disponíveis:',
     )}\n\nEscolha uma opcao abaixo para gerar o Pix.`,
     { reply_markup: replyMarkup },
   );
@@ -3701,16 +3869,108 @@ async function sendSitewidePreviews(token, chatId, siteContent, options) {
   const customer = (await options.billingStore.getCustomer(chatId)) || {};
   const mediaPreview = getRandomSitewideMediaSelection(siteContent, getPreviewRecentKeys(customer));
 
-  logBot('Enviando previas globais.', {
+    logBot('Enviando prévias globais.', {
     chatId,
     totalMidias: mediaPreview.length,
     selecao: mediaPreview.map((item) => `${item.type}:${item.modelName || item.modelSlug || 'site'}`).join(', '),
   });
 
   if (mediaPreview.length === 0) {
-    return sendPlainText(token, chatId, '🌐 Acesse o site para ver mais previas.', {
+    return sendPlainText(token, chatId, '🌐 Acesse o site para ver mais prévias.', {
       reply_markup: await buildStartKeyboardForChat(chatId, options),
     });
+  }
+
+  await sendPreviewMediaSelection(token, chatId, mediaPreview, options);
+  await rememberPreviewMediaItems(chatId, mediaPreview, options);
+
+  return null;
+}
+
+function getPreviewUpsellText() {
+  return '🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n ⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>';
+}
+
+async function sendManagedPreviewUpsellMessage(
+  token,
+  chatId,
+  options,
+  previewButtonLabel = 'Ver prévias',
+) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.previewUpsellMessageId || 0) || null;
+  const nextMessage = await sendText(token, chatId, getPreviewUpsellText(), {
+    reply_markup: await buildStartKeyboardForChat(chatId, options, previewButtonLabel),
+  });
+  const nextMessageId = Number(nextMessage?.message_id || 0) || null;
+
+  if (previousMessageId && (!nextMessageId || previousMessageId !== nextMessageId)) {
+    try {
+      await deleteMessage(token, chatId, previousMessageId);
+    } catch {
+      // Ignora falha ao limpar o upsell anterior.
+    }
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    previewUpsellMessageId: nextMessageId,
+  });
+
+  return nextMessage;
+}
+
+function getPreviewUpsellTextV2(showSiteMessage = false) {
+  const siteMessage = showSiteMessage ? '\n\n🌐 Acesse o site para mais prévias.' : '';
+
+  return `🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>${siteMessage}`;
+}
+
+async function sendManagedPreviewUpsellMessageV2(
+  token,
+  chatId,
+  options,
+  previewButtonLabel = 'Ver prévias',
+  showSiteMessage = false,
+) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.previewUpsellMessageId || 0) || null;
+  const nextMessage = await sendText(token, chatId, getPreviewUpsellTextV2(showSiteMessage), {
+    reply_markup: await buildStartKeyboardForChat(chatId, options, previewButtonLabel),
+  });
+  const nextMessageId = Number(nextMessage?.message_id || 0) || null;
+
+  if (previousMessageId && (!nextMessageId || previousMessageId !== nextMessageId)) {
+    try {
+      await deleteMessage(token, chatId, previousMessageId);
+    } catch {
+      // Ignora falha ao limpar o upsell anterior.
+    }
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    previewUpsellMessageId: nextMessageId,
+  });
+
+  return nextMessage;
+}
+
+async function sendFavoriteStartPreviews(token, chatId, siteContent, options) {
+  const customer = (await options.billingStore.getCustomer(chatId)) || {};
+  const mediaPreview = getRandomFavoriteSitewideMediaSelection(
+    siteContent,
+    getPreviewRecentKeys(customer),
+  );
+
+  logBot('Enviando prévias favoritadas do /start.', {
+    chatId,
+    totalMidias: mediaPreview.length,
+    selecao: mediaPreview
+      .map((item) => `${item.type}:${item.modelName || item.modelSlug || 'site'}`)
+      .join(', '),
+  });
+
+  if (mediaPreview.length === 0) {
+    return null;
   }
 
   await sendPreviewMediaSelection(token, chatId, mediaPreview, options);
@@ -3794,10 +4054,13 @@ async function handleMessage(token, message, readSiteContent, options) {
       return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
     }
 
+    await sendFavoriteStartPreviews(token, chatId, siteContent, options);
+    return sendManagedPreviewUpsellMessageV2(token, chatId, options);
+
     return sendText(
       token,
       chatId,
-      `*AllPrivacy*\n\n👀 Veja previas no bot.\n${buildPaymentPlansIntro(options)}`,
+      `*AllPrivacy*\n\n👀 Veja prévias no bot.\n${buildPaymentPlansIntro(options)}`,
       {
         reply_markup: await buildStartKeyboardForChat(chatId, options),
       },
@@ -3822,14 +4085,14 @@ async function handleMessage(token, message, readSiteContent, options) {
     const model = findModelByInput(siteContent.models, query);
 
     if (!model) {
-      logBot('Modelo nao encontrada para comando /modelo.', {
+    logBot('Modelo não encontrada para comando /modelo.', {
         chatId,
         query,
       });
       return sendText(
         token,
         chatId,
-        'Nao encontrei essa modelo. Use `/modelos` para ver a lista atual.',
+      'Não encontrei essa modelo. Use `/modelos` para ver a lista atual.',
       );
     }
 
@@ -3865,7 +4128,7 @@ async function handleMessage(token, message, readSiteContent, options) {
     return sendText(
       token,
       chatId,
-      '🌐 *AllPrivacy*\n\nAcesse o site oficial para ver mais previas e conhecer as modelos.',
+      '🌐 *AllPrivacy*\n\nAcesse o site oficial para ver mais prévias e conhecer as modelos.',
       {
         reply_markup: buildSiteKeyboard(options.siteUrl),
       },
@@ -3876,7 +4139,7 @@ async function handleMessage(token, message, readSiteContent, options) {
     const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
     const supportText = activeSubscription
       ? '🆘 *Suporte*\n\nSe tiver problema para entrar no grupo, toque em *Meu acesso* ou use /assinatura para consultar sua validade atual.'
-      : '🆘 *Suporte*\n\nSe o pagamento ainda nao apareceu, toque em *Ja paguei, verificar* no Pix gerado.\n\nSe precisar de mais previas ou informacoes, use /site.';
+      : '🆘 *Suporte*\n\nSe o pagamento ainda não apareceu, toque em *Já paguei, verificar* no Pix gerado.\n\nSe precisar de mais prévias ou informações, use /site.';
 
     return sendText(
       token,
@@ -3910,7 +4173,7 @@ async function handleMessage(token, message, readSiteContent, options) {
   return sendText(
     token,
     chatId,
-    '📌 Comandos disponiveis:\n/start\n/suporte\n/assinatura\n/site',
+      '📌 Comandos disponíveis:\n/start\n/suporte\n/assinatura\n/site',
   );
 }
 
@@ -3943,14 +4206,77 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
   }
 
-  if (data === 'show-previews') {
+  if (data === 'show-previews:v3' || data === 'show-previews') {
     const previewResult = await consumePreviewUsage(chatId, options);
+
+    if (!previewResult.allowed) {
+      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais prévias.');
+      return null;
+    }
 
     if (Number.isInteger(sourceMessageId)) {
       try {
         await deleteMessage(token, chatId, sourceMessageId);
       } catch (error) {
-        logBot('Falha ao apagar menu antigo das previas.', {
+        logBot('Falha ao apagar menu antigo das prévias.', {
+          chatId,
+          sourceMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    await answerCallbackQuery(token, callbackId);
+    await sendSitewidePreviews(token, chatId, siteContent, options);
+    return sendManagedPreviewUpsellMessageV2(
+      token,
+      chatId,
+      options,
+      'Ver mais prévias',
+      !previewResult.usage.canUse,
+    );
+  }
+
+  if (data === 'show-previews') {
+    const previewResult = await consumePreviewUsage(chatId, options);
+
+    if (!previewResult.allowed) {
+      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais prévias.');
+      return null;
+    }
+
+    if (Number.isInteger(sourceMessageId)) {
+      try {
+        await deleteMessage(token, chatId, sourceMessageId);
+      } catch (error) {
+        logBot('Falha ao apagar menu antigo das prévias.', {
+          chatId,
+          sourceMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    await answerCallbackQuery(token, callbackId);
+    await sendSitewidePreviews(token, chatId, siteContent, options);
+    await sendPlainText(token, chatId, '🌐 Acesse o site para mais prévias.');
+    await sendManagedPreviewUpsellMessage(token, chatId, options, 'Ver mais prévias');
+    return null;
+  }
+
+  if (data === 'show-previews') {
+    const previewResult = await consumePreviewUsage(chatId, options);
+
+    if (!previewResult.allowed) {
+      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais prÃ©vias.');
+      return null;
+    }
+
+    if (Number.isInteger(sourceMessageId)) {
+      try {
+        await deleteMessage(token, chatId, sourceMessageId);
+      } catch (error) {
+        logBot('Falha ao apagar menu antigo das prévias.', {
           chatId,
           sourceMessageId,
           error: error instanceof Error ? error.message : String(error),
@@ -3959,25 +4285,35 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     }
 
     if (!previewResult.allowed) {
-      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais previas.');
+      await answerCallbackQuery(token, callbackId, 'Acesse o site para mais prévias.');
       return null;
     }
 
     await answerCallbackQuery(token, callbackId);
     await sendSitewidePreviews(token, chatId, siteContent, options);
 
+    if (!previewResult.usage.canUse) {
+      await sendManagedPreviewUpsellMessage(token, chatId, options, 'Ver mais prévias');
+      return sendPlainText(token, chatId, 'ðŸŒ Acesse o site para mais prÃ©vias.', {
+        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais prÃ©vias'),
+      });
+    }
+
+    await sendManagedPreviewUpsellMessage(token, chatId, options, 'Ver mais prévias');
+    return null;
+
     const previewUpsellText =
-      '\u{1F513} <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>\u{1F48E} Privacy, OnlyFans, XvideosRED, CloseFriends, TelegramVIP\n\u{1F48E} Cornos/Hotwife\n\u{1F48E} AmadorVIP\n\u{1F48E} Sexo em P\u00FAblico\n\u{1F48E} Famosinhas Vazadas\n\u{1F48E} C\u00E2meras Escondidas\n\u{1F48E} Atualiza\u00E7\u00F5es Di\u00E1rias\n\u{1F48E} Todo conte\u00FAdo separado por t\u00F3picos</i>\n\n\u{1F680} Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM S\u00D3 LUGAR!</b>';
+      '🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n ⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>';
 
     if (!previewResult.usage.canUse) {
       await sendText(token, chatId, previewUpsellText);
-      return sendPlainText(token, chatId, '\u{1F310} Acesse o site para mais pr\u00E9vias.', {
-        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais previas'),
+      return sendPlainText(token, chatId, '🌐 Acesse o site para mais prévias.', {
+        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais prévias'),
       });
     }
 
     await sendText(token, chatId, previewUpsellText, {
-      reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais previas'),
+      reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais prévias'),
     });
 
     return null;
@@ -3987,11 +4323,11 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     const model = findModelByInput(siteContent.models, data.replace(/^model:/, ''));
 
     if (!model) {
-      logBot('Modelo nao encontrada para callback.', {
+      logBot('Modelo não encontrada para callback.', {
         chatId,
         data,
       });
-      await answerCallbackQuery(token, callbackId, 'Modelo nao encontrada.');
+    await answerCallbackQuery(token, callbackId, 'Modelo não encontrada.');
       return;
     }
 

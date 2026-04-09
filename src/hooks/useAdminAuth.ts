@@ -12,7 +12,7 @@ interface LoginInput {
 async function parseAuthResponse(response: Response): Promise<SessionResponse> {
   if (!response.ok) {
     const data = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(data?.message || 'Falha na autentica\u00e7\u00e3o.');
+      throw new Error(data?.message || 'Falha na autenticação.');
   }
 
   return (await response.json()) as SessionResponse;
@@ -35,7 +35,7 @@ export function useAdminAuth() {
       setError(null);
     } catch {
       setIsAuthenticated(false);
-      setError('N\u00e3o foi poss\u00edvel validar a sess\u00e3o do admin.');
+      setError('Não foi possível validar a sessão do admin.');
     } finally {
       setIsChecking(false);
     }

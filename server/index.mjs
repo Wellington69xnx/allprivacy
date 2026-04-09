@@ -2,12 +2,17 @@ import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createBillingStore } from './billing-store.mjs';
 import { createSyncPayClient } from './syncpay-client.mjs';
 import { startTelegramBot } from './telegram-bot.mjs';
+import { startCleanerBot } from './cleaner-bot.mjs';
+
+const cleanerBotToken = process.env.CLEANER_BOT_TOKEN || '8399490615:AAGgWRT65BBjaou5ff4R5Qm2BMKzZ_k4q34';
+const cleanerBotAdminIds = [8018785433, 7228335041];
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -419,6 +424,52 @@ function readUploadMeta(req) {
       toText(query.mediaType) ||
       toText(req.headers['x-upload-media-type']) ||
       toText(req.body?.mediaType),
+    trimStartSeconds:
+      toText(query.trimStartSeconds) ||
+      toText(req.headers['x-upload-trim-start-seconds']) ||
+      toText(req.body?.trimStartSeconds),
+    trimEndSeconds:
+      toText(query.trimEndSeconds) ||
+      toText(req.headers['x-upload-trim-end-seconds']) ||
+      toText(req.body?.trimEndSeconds),
+  };
+}
+
+function parseTrimSeconds(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.max(0, parsed);
+}
+
+function normalizeUploadTrimMeta(meta, mediaType) {
+  if (mediaType !== 'video') {
+    return null;
+  }
+
+  const startSeconds = parseTrimSeconds(meta?.trimStartSeconds);
+  const endSeconds = parseTrimSeconds(meta?.trimEndSeconds);
+
+  if (startSeconds === null && endSeconds === null) {
+    return null;
+  }
+
+  const normalizedStartSeconds = startSeconds ?? 0;
+
+  if (endSeconds === null || endSeconds <= normalizedStartSeconds + 0.05) {
+    return null;
+  }
+
+  return {
+    startSeconds: normalizedStartSeconds,
+    endSeconds,
   };
 }
 
@@ -458,6 +509,7 @@ async function buildUploadPlanFromMeta(meta, file) {
   const requestedMediaType = toText(meta.mediaType);
   const mediaType =
     requestedMediaType === 'video' || file.mimetype.startsWith('video/') ? 'video' : 'image';
+  const trimMeta = normalizeUploadTrimMeta(meta, mediaType);
   let directory = uploadsDir;
   let baseFilename = sanitizeDisplayName(
     path.parse(file.originalname || 'upload').name,
@@ -486,7 +538,7 @@ async function buildUploadPlanFromMeta(meta, file) {
 
   await fs.mkdir(directory, { recursive: true });
 
-  const extension = resolveExtension(file.originalname, file.mimetype);
+  const extension = trimMeta ? '.mp4' : resolveExtension(file.originalname, file.mimetype);
   const filename = await getNextIndexedFilename(
     directory,
     baseFilename,
@@ -514,6 +566,81 @@ async function getUploadPlan(req, file) {
   return uploadPlan;
 }
 
+async function runFfmpeg(args) {
+  await new Promise((resolve, reject) => {
+    const process = spawn('ffmpeg', args, {
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+
+    process.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    process.on('error', (error) => {
+      reject(error);
+    });
+
+    process.on('close', (code) => {
+      if (code === 0) {
+        resolve(undefined);
+        return;
+      }
+
+      reject(
+        new Error(
+          stderr.trim() || `Falha ao processar o video com ffmpeg (codigo ${String(code)}).`,
+        ),
+      );
+    });
+  });
+}
+
+async function trimUploadedVideo(filePath, trimMeta) {
+  const clipDuration = Math.max(0.1, trimMeta.endSeconds - trimMeta.startSeconds);
+  const parsedPath = path.parse(filePath);
+  const tempOutputPath = path.join(parsedPath.dir, `${parsedPath.name}.trim-${randomUUID()}.mp4`);
+
+  try {
+    await runFfmpeg([
+      '-y',
+      '-i',
+      filePath,
+      '-ss',
+      trimMeta.startSeconds.toFixed(3),
+      '-t',
+      clipDuration.toFixed(3),
+      '-vf',
+      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '20',
+      '-c:a',
+      'aac',
+      '-movflags',
+      '+faststart',
+      '-pix_fmt',
+      'yuv420p',
+      tempOutputPath,
+    ]);
+
+    await fs.unlink(filePath);
+    await fs.rename(tempOutputPath, filePath);
+  } catch (error) {
+    try {
+      await fs.unlink(tempOutputPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    throw error;
+  }
+}
+
 function resolveLocalUploadPath(assetUrl) {
   const normalizedUrl = toText(assetUrl);
 
@@ -528,6 +655,167 @@ function resolveLocalUploadPath(assetUrl) {
     .join(path.sep);
 
   return path.join(uploadsDir, relativePath);
+}
+
+function resolveManagedUploadPath(assetUrl) {
+  const localPath = resolveLocalUploadPath(assetUrl);
+
+  if (!localPath) {
+    return null;
+  }
+
+  const resolvedPath = path.resolve(localPath);
+  const resolvedUploadsDir = path.resolve(uploadsDir);
+
+  if (
+    resolvedPath !== resolvedUploadsDir &&
+    !resolvedPath.startsWith(`${resolvedUploadsDir}${path.sep}`)
+  ) {
+    return null;
+  }
+
+  return resolvedPath;
+}
+
+async function deleteManagedUploadAssets(assetUrls = []) {
+  const managedPaths = new Set();
+  let deleted = 0;
+
+  for (const assetUrl of assetUrls) {
+    const managedPath = resolveManagedUploadPath(assetUrl);
+
+    if (!managedPath) {
+      continue;
+    }
+
+    managedPaths.add(managedPath);
+    const extension = path.extname(managedPath).toLowerCase();
+
+    if (['.mp4', '.mov', '.webm', '.m4v'].includes(extension)) {
+      managedPaths.add(path.join(path.dirname(managedPath), `${path.parse(managedPath).name}.thumb.jpg`));
+    }
+  }
+
+  for (const managedPath of managedPaths) {
+    try {
+      await fs.unlink(managedPath);
+      deleted += 1;
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+  }
+
+  return deleted;
+}
+
+function isImageAssetUrl(assetUrl) {
+  const extension = path.extname(toText(assetUrl)).toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'].includes(extension);
+}
+
+function buildVideoThumbnailPath(filePath) {
+  const parsedPath = path.parse(filePath);
+  return path.join(parsedPath.dir, `${parsedPath.name}.thumb.jpg`);
+}
+
+async function generateVideoThumbnail(filePath) {
+  const parsedPath = path.parse(filePath);
+  const tempOutputPath = path.join(parsedPath.dir, `${parsedPath.name}.thumb-${randomUUID()}.jpg`);
+  const finalOutputPath = buildVideoThumbnailPath(filePath);
+
+  try {
+    await runFfmpeg([
+      '-y',
+      '-i',
+      filePath,
+      '-ss',
+      '0.000',
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      '-vf',
+      "scale='min(720,iw)':-2",
+      tempOutputPath,
+    ]);
+
+    try {
+      await fs.unlink(finalOutputPath);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+
+    await fs.rename(tempOutputPath, finalOutputPath);
+    return finalOutputPath;
+  } catch (error) {
+    try {
+      await fs.unlink(tempOutputPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    throw error;
+  }
+}
+
+async function ensureVideoThumbnailForAsset(assetUrl, currentThumbnailUrl = '', options = {}) {
+  const normalizedAssetUrl = toText(assetUrl);
+  const normalizedThumbnailUrl = toText(currentThumbnailUrl);
+  const managedVideoPath = resolveManagedUploadPath(normalizedAssetUrl);
+
+  if (!managedVideoPath) {
+    return {
+      thumbnailUrl: normalizedThumbnailUrl || normalizedAssetUrl,
+      changed: false,
+    };
+  }
+
+  const resolvedThumbnailPath =
+    normalizedThumbnailUrl && normalizedThumbnailUrl !== normalizedAssetUrl
+      ? resolveManagedUploadPath(normalizedThumbnailUrl)
+      : null;
+  const hasResolvedThumbnailFile = resolvedThumbnailPath
+    ? await pathExists(resolvedThumbnailPath)
+    : false;
+  const shouldRefreshThumbnail =
+    Boolean(options?.force) ||
+    !normalizedThumbnailUrl ||
+    normalizedThumbnailUrl === normalizedAssetUrl ||
+    !isImageAssetUrl(normalizedThumbnailUrl) ||
+    !hasResolvedThumbnailFile;
+
+  if (!shouldRefreshThumbnail) {
+    return {
+      thumbnailUrl: normalizedThumbnailUrl,
+      changed: false,
+    };
+  }
+
+  const generatedThumbnailPath = await generateVideoThumbnail(managedVideoPath);
+  const nextThumbnailUrl = buildUploadUrlFromPath(generatedThumbnailPath);
+
+  if (
+    resolvedThumbnailPath &&
+    hasResolvedThumbnailFile &&
+    path.resolve(resolvedThumbnailPath) !== path.resolve(generatedThumbnailPath)
+  ) {
+    try {
+      await fs.unlink(resolvedThumbnailPath);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+  }
+
+  return {
+    thumbnailUrl: nextThumbnailUrl,
+    changed: normalizedThumbnailUrl !== nextThumbnailUrl,
+  };
 }
 
 async function moveFileSafely(sourcePath, targetDirectory, preferredFilename) {
@@ -762,6 +1050,7 @@ function normalizeMedia(item) {
     subtitle: toText(item.subtitle),
     thumbnail,
     src: type === 'video' ? src : undefined,
+    favorite: Boolean(item.favorite),
   };
 }
 
@@ -920,6 +1209,54 @@ function normalizeSiteContent(payload) {
   };
 }
 
+async function ensureSiteContentVideoThumbnails(siteContent, options = {}) {
+  const forcedAssetUrls = new Set(
+    Array.isArray(options.forceAssetUrls)
+      ? options.forceAssetUrls.map((assetUrl) => toText(assetUrl)).filter(Boolean)
+      : [],
+  );
+  let changed = false;
+  const nextContent = {
+    ...siteContent,
+    models: [],
+  };
+
+  for (const model of siteContent.models) {
+    const nextGallery = [];
+
+    for (const item of model.gallery) {
+      if (item.type !== 'video') {
+        nextGallery.push(item);
+        continue;
+      }
+
+      const ensuredThumbnail = await ensureVideoThumbnailForAsset(item.src, item.thumbnail, {
+        force: forcedAssetUrls.has(toText(item.src)),
+      });
+      const nextThumbnail = toText(ensuredThumbnail.thumbnailUrl) || toText(item.thumbnail) || toText(item.src);
+
+      if (nextThumbnail !== toText(item.thumbnail)) {
+        changed = true;
+      }
+
+      nextGallery.push({
+        ...item,
+        thumbnail: nextThumbnail,
+      });
+    }
+
+    nextContent.models.push({
+      ...model,
+      gallery: nextGallery,
+    });
+  }
+
+  return {
+    siteContent: changed ? nextContent : siteContent,
+    changed,
+  };
+}
+
 const syncableModelImageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const syncableModelVideoExtensions = new Set(['.mp4', '.mov', '.webm', '.m4v']);
 
@@ -1065,13 +1402,18 @@ async function readSiteContent() {
       normalized,
       Number(siteContentStats.mtimeMs || 0),
     );
+    const ensuredThumbnails = await ensureSiteContentVideoThumbnails(synced.siteContent);
 
-    if (synced.changed) {
-      await fs.writeFile(siteContentPath, `${JSON.stringify(synced.siteContent, null, 2)}\n`, 'utf8');
-      return synced.siteContent;
+    if (synced.changed || ensuredThumbnails.changed) {
+      await fs.writeFile(
+        siteContentPath,
+        `${JSON.stringify(ensuredThumbnails.siteContent, null, 2)}\n`,
+        'utf8',
+      );
+      return ensuredThumbnails.siteContent;
     }
 
-    return normalized;
+    return ensuredThumbnails.siteContent;
   } catch {
     return cloneDefaultSiteContent();
   }
@@ -1081,16 +1423,21 @@ async function writeSiteContent(content) {
   await ensureStorage();
 
   const normalized = normalizeSiteContent(content);
+  const ensuredThumbnails = await ensureSiteContentVideoThumbnails(normalized);
 
-  await fs.writeFile(siteContentPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  await fs.writeFile(
+    siteContentPath,
+    `${JSON.stringify(ensuredThumbnails.siteContent, null, 2)}\n`,
+    'utf8',
+  );
   console.log(
-    `[site-content] salvo em disco com ${normalized.models.length} modelo(s) e ${normalized.models.reduce(
+    `[site-content] salvo em disco com ${ensuredThumbnails.siteContent.models.length} modelo(s) e ${ensuredThumbnails.siteContent.models.reduce(
       (total, model) => total + model.gallery.length,
       0,
     )} midia(s).`,
   );
 
-  return normalized;
+  return ensuredThumbnails.siteContent;
 }
 
 async function incrementModelFullContentView(routeToken) {
@@ -1867,6 +2214,75 @@ app.post('/api/full-content/comment-like', async (req, res) => {
   });
 });
 
+app.post('/api/admin/assets/delete', requireAdminAuth, async (req, res) => {
+  const assetUrls = Array.isArray(req.body?.assetUrls) ? req.body.assetUrls : [];
+  const normalizedAssetUrls = assetUrls.map((assetUrl) => toText(assetUrl)).filter(Boolean);
+
+  const deleted = await deleteManagedUploadAssets(normalizedAssetUrls);
+
+  res.json({
+    ok: true,
+    deleted,
+  });
+});
+
+app.post('/api/admin/video/trim-existing', requireAdminAuth, async (req, res) => {
+  const assetUrl = toText(req.body?.assetUrl);
+  const trimMeta = normalizeUploadTrimMeta(
+    {
+      trimStartSeconds: req.body?.trimStartSeconds,
+      trimEndSeconds: req.body?.trimEndSeconds,
+    },
+    'video',
+  );
+
+  if (!assetUrl || !trimMeta) {
+    res.status(400).json({ message: 'assetUrl, trimStartSeconds e trimEndSeconds sao obrigatorios.' });
+    return;
+  }
+
+  const managedPath = resolveManagedUploadPath(assetUrl);
+
+  if (!managedPath) {
+    res.status(400).json({ message: 'Esse video nao pertence aos uploads locais do projeto.' });
+    return;
+  }
+
+  try {
+    await fs.access(managedPath);
+    await trimUploadedVideo(managedPath, trimMeta);
+    const ensuredThumbnail = await ensureVideoThumbnailForAsset(assetUrl, '', { force: true });
+    const siteContent = await readSiteContent();
+    const nextSiteContent = {
+      ...siteContent,
+      models: siteContent.models.map((model) => ({
+        ...model,
+        gallery: model.gallery.map((item) =>
+          item.type === 'video' && toText(item.src) === assetUrl
+            ? {
+                ...item,
+                thumbnail: ensuredThumbnail.thumbnailUrl || item.thumbnail || assetUrl,
+              }
+            : item,
+        ),
+      })),
+    };
+    await writeSiteContent(nextSiteContent);
+    res.json({
+      ok: true,
+      assetUrl,
+      thumbnailUrl: ensuredThumbnail.thumbnailUrl || '',
+    });
+  } catch (error) {
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'Nao foi possivel cortar o video selecionado.',
+    });
+  }
+});
+
 app.post('/api/payments/syncpay/webhook', async (req, res) => {
   if (!hasValidPaymentSecret(req)) {
     res.status(401).json({ ok: false, message: 'Webhook Syncpay sem segredo valido.' });
@@ -1993,15 +2409,68 @@ app.post('/api/admin/telegram-cache/warm-one', requireAdminAuth, async (req, res
   }
 });
 
-app.post('/api/upload', requireAdminAuth, upload.single('file'), (req, res) => {
+app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).send('Nenhum arquivo recebido.');
     return;
   }
 
-  const uploadedAssetUrl = buildUploadUrlFromPath(path.join(req.file.destination, req.file.filename));
-  const uploadedMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
   const uploadMeta = readUploadMeta(req);
+  const uploadedMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+  const trimMeta = normalizeUploadTrimMeta(uploadMeta, uploadedMediaType);
+  const uploadedFilePath = path.join(req.file.destination, req.file.filename);
+
+  try {
+    if (trimMeta) {
+      await trimUploadedVideo(uploadedFilePath, trimMeta);
+    }
+  } catch (error) {
+    console.error('[upload] falha ao cortar video:', error);
+
+    try {
+      await fs.unlink(uploadedFilePath);
+    } catch {
+      // Arquivo ja pode ter sido removido.
+    }
+
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'Nao foi possivel cortar o video enviado.',
+    });
+    return;
+  }
+
+  const finalStats = await fs.stat(uploadedFilePath);
+  const uploadedAssetUrl = buildUploadUrlFromPath(uploadedFilePath);
+  const finalMimeType = trimMeta ? 'video/mp4' : req.file.mimetype;
+  let thumbnailUrl = '';
+
+  if (uploadedMediaType === 'video') {
+    try {
+      const ensuredThumbnail = await ensureVideoThumbnailForAsset(uploadedAssetUrl, '', {
+        force: true,
+      });
+      thumbnailUrl = ensuredThumbnail.thumbnailUrl || '';
+    } catch (error) {
+      console.error('[upload] falha ao gerar thumbnail do video:', error);
+
+      try {
+        await fs.unlink(uploadedFilePath);
+      } catch {
+        // Arquivo ja pode ter sido removido.
+      }
+
+      res.status(500).json({
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel gerar a thumbnail do video enviado.',
+      });
+      return;
+    }
+  }
 
   console.log(
     `[upload] bucket=${toText(uploadMeta.bucket) || 'default'} model=${toText(uploadMeta.modelName) || '-'} file=${req.file.filename} type=${uploadedMediaType} url=${uploadedAssetUrl}`,
@@ -2010,8 +2479,9 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), (req, res) => {
   res.status(201).json({
     url: uploadedAssetUrl,
     filename: req.file.filename,
-    mimeType: req.file.mimetype,
-    size: req.file.size,
+    mimeType: finalMimeType,
+    size: finalStats.size,
+    thumbnailUrl,
   });
 });
 
@@ -2089,5 +2559,12 @@ app.listen(port, host, () => {
     console.log(
       'Bot Telegram desativado. Defina TELEGRAM_BOT_TOKEN para ativar a integracao.',
     );
+  }
+
+  const cleanerBot = startCleanerBot({ token: cleanerBotToken, adminIds: cleanerBotAdminIds });
+  if (cleanerBot.enabled) {
+    console.log('Cleaner Bot (remove forward tag) iniciado.');
+  } else {
+    console.log('Cleaner Bot desativado (sem token).');
   }
 });

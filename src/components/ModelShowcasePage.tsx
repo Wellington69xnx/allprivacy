@@ -136,11 +136,11 @@ export function ModelShowcasePage({
             {'Voltar para a home'}
           </a>
           <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            {'Modelo n\u00e3o encontrada'}
+            {'Modelo não encontrada'}
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
             {
-              'Essa rota n\u00e3o encontrou uma modelo v\u00e1lida. Volte para a home ou confira a URL divulgada.'
+              'Essa rota não encontrou uma modelo válida. Volte para a home ou confira a URL divulgada.'
             }
           </p>
         </div>
@@ -173,15 +173,15 @@ export function ModelShowcasePage({
               href={getHomePath()}
               className="absolute -left-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/50 transition hover:text-white/75 sm:hidden"
             >
-              <span aria-hidden="true">{'\u2039'}</span>
-              <span>{'P\u00e1gina inicial'}</span>
+              <span aria-hidden="true">{'‹'}</span>
+              <span>{'Página inicial'}</span>
             </a>
             <a
               href={getHomePath()}
               className="absolute left-4 top-1/2 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white/50 transition hover:text-white/75 sm:inline-flex md:text-[13px]"
             >
-              <span aria-hidden="true">{'\u2039'}</span>
-              <span>{'P\u00e1gina inicial'}</span>
+              <span aria-hidden="true">{'‹'}</span>
+              <span>{'Página inicial'}</span>
             </a>
             <div className="sm:hidden">
               <BrandMark
@@ -248,21 +248,21 @@ export function ModelShowcasePage({
 
           <div className="space-y-4">
             <MediaPreviewRail
-              eyebrow={'Pr\u00e9vias'}
+              eyebrow={'Prévias'}
               title={`Vídeos`}
               description="Entre no GrupoVIP e tenha acesso a todo conteúdo."
               items={videoPreviewCards}
-              emptyMessage={'Ainda n\u00e3o existem v\u00eddeos liberados para essa modelo.'}
+              emptyMessage={'Ainda não existem vídeos liberados para essa modelo.'}
             />
 
             <MediaPreviewRail
-              eyebrow={'Mais pr\u00e9vias'}
+              eyebrow={'Mais prévias'}
               title={`Imagens`}
               description={
                 'Entre no GrupoVIP e tenha acesso a todo conteúdo.'
               }
               items={imagePreviewCards}
-              emptyMessage={'Ainda n\u00e3o existem imagens liberadas para essa modelo.'}
+              emptyMessage={'Ainda não existem imagens liberadas para essa modelo.'}
               variant="portrait"
             />
 
