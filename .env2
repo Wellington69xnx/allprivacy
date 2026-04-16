@@ -1,0 +1,59 @@
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=3001
+
+# Sessao do admin
+ADMIN_AUTH_SECRET=allprivacy-vps-2026-04-16-8a3c1f2d7e4b9c6a
+
+# URLs publicas
+SITE_PUBLIC_URL=https://allprivacy.site
+TELEGRAM_GROUP_URL=https://t.me/+dCGOTrjVJ-kxZjkx
+VITE_TELEGRAM_GROUP_URL=https://t.me/+dCGOTrjVJ-kxZjkx
+VITE_TELEGRAM_BOT_USERNAME=allprivacy_site_bot
+
+# Telegram
+TELEGRAM_PRIVATE_GROUP_CHAT_ID=-1003822454468
+TELEGRAM_CACHE_CHAT_ID=-1003697269286
+TELEGRAM_BOT_TOKEN=8189330976:AAH-yB6Oguom9sbFBiqhX2yrM4mZ2ruN-ig
+TELEGRAM_API_BASE=https://api.telegram.org
+
+# O projeto atual ainda sobe o cleaner bot com fallback hardcoded,
+# então deixei explicito aqui para a VPS.
+CLEANER_BOT_TOKEN=8399490615:AAGgWRT65BBjaou5ff4R5Qm2BMKzZ_k4q34
+
+# Mantidos em modo de teste, como no ambiente atual.
+PAYMENT_SIMULATION_ENABLED=true
+PAYMENT_FAKE_PIX_ENABLED=true
+PREVIEW_USAGE_WINDOW_SECONDS=30
+PIX_TTL_SECONDS=480
+PIX_REMINDER_SECONDS=240
+
+# SyncPay
+SYNC_PAY_CLIENT_ID=6b4417f9-547d-414f-a1e7-4d160d4fd3ff
+SYNC_PAY_CLIENT_SECRET=ef02867f-3aa1-4237-a524-b0da8a6b16ad
+SYNC_PAY_API_KEY_BASE64=NmI0NDE3ZjktNTQ3ZC00MTRmLWExZTctNGQxNjBkNGZkM2ZmOmVmMDI4NjdmLTNhYTEtNDIzNy1hNTI0LWIwZGE4YTZiMTZhZA==
+SYNC_PAY_BASE_URL=https://api.syncpayments.com.br/
+SYNC_PAY_WEBHOOK_SECRET=allprivacy-syncpay-local
+SYNC_PAY_WEBHOOK_URL=https://allprivacy.site/api/payments/syncpay/webhook?secret=allprivacy-syncpay-local
+SYNC_PAY_TEST_AMOUNT=1.01
+SYNC_PAY_TEST_AMOUNT_7D=1.01
+SYNC_PAY_TEST_AMOUNT_30D=1.02
+SYNC_PAY_TEST_CUSTOMER_NAME=AllPrivacy
+SYNC_PAY_TEST_CUSTOMER_EMAIL=pix@allprivacy.site
+SYNC_PAY_TEST_CUSTOMER_CPF=
+SYNC_PAY_TEST_CUSTOMER_PHONE=11912345678
+
+# Duracao dos planos
+SUBSCRIPTION_DURATION_SECONDS_7D=604800
+SUBSCRIPTION_DURATION_SECONDS_30D=2592000
+
+# Mantive os dados antigos do arquivo original por seguranca
+# mesmo nao estando ativos no codigo atual.
+HOOPAY_ORGANIZATION_ID=2ffaa695-b03d-48db-af81-7f242096d3eb
+HOOPAY_BASIC_USERNAME=c53731618392b65f24d1228b3d07975d
+HOOPAY_BASIC_PASSWORD=8e73c64b111310890e77257f696aa9c4564cdac7873d29087efbcf6573cb1e85
+HOOPAY_BEARER_TOKEN=
+HOOPAY_BASE_URL=https://api.pay.hoopay.com.br
+HOOPAY_WEBHOOK_SECRET=allprivacy-hoopay-local
+HOOPAY_TEST_AMOUNT=0.5
+

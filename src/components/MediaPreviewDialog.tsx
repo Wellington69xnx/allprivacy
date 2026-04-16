@@ -23,8 +23,11 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
   const audioFocusIdRef = useRef(`media-dialog-audio-${Math.random().toString(36).slice(2)}`);
   const loadingStartedAtRef = useRef(0);
   const loadingTimeoutRef = useRef<number | null>(null);
+  const initialSeekFallbackRef = useRef<number | null>(null);
+  const isAwaitingInitialSeekRef = useRef(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
+  const [isPlaybackVisible, setIsPlaybackVisible] = useState(false);
 
   useEffect(() => {
     if (!item) {
@@ -54,11 +57,18 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
   useEffect(() => {
     if (!item) {
       setShowLoading(false);
+      setIsPlaybackVisible(false);
       return;
     }
 
     loadingStartedAtRef.current = Date.now();
     setShowLoading(true);
+    setIsPlaybackVisible(item.type !== 'video');
+    isAwaitingInitialSeekRef.current = false;
+    if (initialSeekFallbackRef.current !== null) {
+      window.clearTimeout(initialSeekFallbackRef.current);
+      initialSeekFallbackRef.current = null;
+    }
   }, [item?.id]);
 
   useEffect(() => {
@@ -76,6 +86,9 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
       releaseMediaAudioFocus(audioFocusIdRef.current);
       if (loadingTimeoutRef.current !== null) {
         window.clearTimeout(loadingTimeoutRef.current);
+      }
+      if (initialSeekFallbackRef.current !== null) {
+        window.clearTimeout(initialSeekFallbackRef.current);
       }
     };
   }, []);
@@ -114,6 +127,47 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
       setShowLoading(false);
       loadingTimeoutRef.current = null;
     }, remaining);
+  };
+
+  const revealPlaybackOnRenderedFrame = () => {
+    const video = videoRef.current;
+
+    if (!video) {
+      setIsPlaybackVisible(true);
+      completeLoading();
+      return;
+    }
+
+    const reveal = () => {
+      window.requestAnimationFrame(() => {
+        setIsPlaybackVisible(true);
+        completeLoading();
+      });
+    };
+
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(() => {
+        reveal();
+      });
+      return;
+    }
+
+    reveal();
+  };
+
+  const attemptPlaybackStart = () => {
+    const video = videoRef.current;
+
+    if (!video || isAwaitingInitialSeekRef.current) {
+      return;
+    }
+
+    const playPromise = video.play();
+    if (playPromise) {
+      playPromise.catch(() => {
+        // Ignora bloqueios/interrupcoes de autoplay aqui.
+      });
+    }
   };
 
   const dialog = (
@@ -175,8 +229,8 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
 
               <div className="p-3 sm:p-4">
                 <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-black">
-                  {showLoading ? (
-                    <div className="absolute inset-0 z-10 skeleton-shimmer bg-white/[0.06]">
+                  {showLoading && item.type !== 'video' ? (
+                    <div className="absolute inset-0 z-20 skeleton-shimmer bg-black/20">
                       <div className="absolute inset-x-6 bottom-6 flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.16em] text-white/35">
                         <span>AllPrivacy.site</span>
                         <span>Carregando</span>
@@ -185,18 +239,51 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                   ) : null}
                   {item.type === 'video' && item.src ? (
                     <>
+                      {item.thumbnail ? (
+                        <img
+                          src={item.thumbnail}
+                          alt=""
+                          aria-hidden="true"
+                          className={`absolute inset-0 z-10 h-full w-full object-contain transition-opacity duration-300 ${
+                            isPlaybackVisible ? 'opacity-0' : 'opacity-100'
+                          }`}
+                          loading="eager"
+                        />
+                      ) : null}
+                      <div
+                        className={`pointer-events-none absolute inset-0 z-20 flex items-center justify-center transition-opacity duration-300 ${
+                          isPlaybackVisible ? 'opacity-0' : 'opacity-100'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <div className="rounded-full bg-black/35 p-3 backdrop-blur-sm">
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/85" />
+                        </div>
+                      </div>
                       <video
                         ref={videoRef}
                         src={item.src}
                         poster={item.thumbnail}
-                        className="max-h-[74dvh] w-full object-contain"
+                        className={`max-h-[74dvh] w-full object-contain transition-opacity duration-300 ${
+                          isPlaybackVisible ? 'opacity-100' : 'opacity-0'
+                        }`}
                         autoPlay
                         loop
                         muted={isMuted}
                         playsInline
                         preload="auto"
-                        onLoadedData={completeLoading}
-                        onCanPlay={completeLoading}
+                        onLoadedData={() => {
+                          if (!item.thumbnail) {
+                            revealPlaybackOnRenderedFrame();
+                          }
+                        }}
+                        onCanPlay={() => {
+                          attemptPlaybackStart();
+                          if (!item.thumbnail) {
+                            revealPlaybackOnRenderedFrame();
+                          }
+                        }}
+                        onPlaying={revealPlaybackOnRenderedFrame}
                         onLoadedMetadata={() => {
                           if (!item.src || !videoRef.current) {
                             return;
@@ -204,6 +291,7 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
 
                           const rememberedTime = getRememberedMediaPlaybackTime(item.src);
                           if (!Number.isFinite(rememberedTime) || rememberedTime <= 0) {
+                            attemptPlaybackStart();
                             return;
                           }
 
@@ -216,8 +304,35 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                           );
 
                           try {
+                            isAwaitingInitialSeekRef.current = true;
                             videoRef.current.currentTime = nextTime;
-                          } catch {}
+                            if (initialSeekFallbackRef.current !== null) {
+                              window.clearTimeout(initialSeekFallbackRef.current);
+                            }
+                            initialSeekFallbackRef.current = window.setTimeout(() => {
+                              if (!isAwaitingInitialSeekRef.current) {
+                                return;
+                              }
+
+                              isAwaitingInitialSeekRef.current = false;
+                              attemptPlaybackStart();
+                            }, 180);
+                          } catch {
+                            isAwaitingInitialSeekRef.current = false;
+                            attemptPlaybackStart();
+                          }
+                        }}
+                        onSeeked={() => {
+                          if (!isAwaitingInitialSeekRef.current) {
+                            return;
+                          }
+
+                          if (initialSeekFallbackRef.current !== null) {
+                            window.clearTimeout(initialSeekFallbackRef.current);
+                            initialSeekFallbackRef.current = null;
+                          }
+                          isAwaitingInitialSeekRef.current = false;
+                          attemptPlaybackStart();
                         }}
                         onTimeUpdate={() => {
                           if (item.src && videoRef.current) {
@@ -228,7 +343,7 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                       <button
                         type="button"
                         onClick={handleToggleVolume}
-                        className="absolute bottom-4 right-4 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-md transition hover:bg-black/65 hover:text-white"
+                        className="absolute bottom-4 right-4 z-30 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur-md transition hover:bg-black/65 hover:text-white"
                         aria-label={isMuted ? 'Ativar audio' : 'Desativar audio'}
                       >
                         {isMuted ? (

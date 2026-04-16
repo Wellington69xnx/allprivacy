@@ -148,6 +148,7 @@ export default function App() {
   const [selectedStaticInfo, setSelectedStaticInfo] = useState<StaticInfoKey | null>(null);
   const [heroBackgroundPool, setHeroBackgroundPool] = useState<string[]>([]);
   const [heroBackgroundSrc, setHeroBackgroundSrc] = useState<string | null>(null);
+  const [isHomeHeroReady, setIsHomeHeroReady] = useState(false);
   const heroBackgroundCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const heroBackgroundHistoryRef = useRef<string[]>([]);
   const { siteContent, isLoading: isSiteLoading, ...actions } = useSiteContent();
@@ -293,6 +294,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (currentView.type === 'site' && !isSiteLoading) {
+      setIsHomeHeroReady(false);
+      return;
+    }
+
+    if (currentView.type !== 'site') {
+      setIsHomeHeroReady(false);
+    }
+  }, [currentView.type, isSiteLoading]);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || currentView.type !== 'site') {
       return;
     }
@@ -401,7 +413,7 @@ export default function App() {
 
       image.onload = applyBackground;
       image.onerror = applyBackground;
-    }, 5000);
+    }, 7000);
 
     return () => {
       cancelled = true;
@@ -557,9 +569,27 @@ export default function App() {
   return (
     <div className="min-h-screen bg-ink text-white">
       <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(168,85,247,0.3),transparent_55%)] blur-3xl" />
+      {currentView.type === 'site' && !isHomeHeroReady ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#050507]">
+          <div className="inline-flex items-center gap-3 rounded-full border border-white/10 bg-black/35 px-5 py-3 text-sm text-zinc-300 backdrop-blur-md">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-white/80" />
+            <span>Carregando...</span>
+          </div>
+        </div>
+      ) : null}
 
       <main className="relative">
-        <HeroSection ctaHref={homeEntryHref} backgroundSrc={heroBackgroundSrc} />
+        <HeroSection
+          ctaHref={homeEntryHref}
+          backgroundSrc={heroBackgroundSrc}
+          onBackgroundReady={(src) => {
+            if (!src || isHomeHeroReady) {
+              return;
+            }
+
+            setIsHomeHeroReady(true);
+          }}
+        />
 
         <div className="mx-auto max-w-[1440px] px-4 pb-14 sm:px-6 lg:px-8">
           <PreviewCarousel

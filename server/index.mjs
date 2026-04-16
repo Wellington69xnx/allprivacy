@@ -630,6 +630,7 @@ async function trimUploadedVideo(filePath, trimMeta) {
 
     await fs.unlink(filePath);
     await fs.rename(tempOutputPath, filePath);
+    await markVideoStreamReady(filePath);
   } catch (error) {
     try {
       await fs.unlink(tempOutputPath);
@@ -693,6 +694,8 @@ async function deleteManagedUploadAssets(assetUrls = []) {
 
     if (['.mp4', '.mov', '.webm', '.m4v'].includes(extension)) {
       managedPaths.add(path.join(path.dirname(managedPath), `${path.parse(managedPath).name}.thumb.jpg`));
+      managedPaths.add(buildVideoStreamReadyMarkerPath(managedPath));
+      managedPaths.add(buildPreviewVideoOptimizedMarkerPath(managedPath));
     }
   }
 
@@ -718,6 +721,229 @@ function isImageAssetUrl(assetUrl) {
 function buildVideoThumbnailPath(filePath) {
   const parsedPath = path.parse(filePath);
   return path.join(parsedPath.dir, `${parsedPath.name}.thumb.jpg`);
+}
+
+function buildVideoStreamReadyMarkerPath(filePath) {
+  const parsedPath = path.parse(filePath);
+  return path.join(parsedPath.dir, `${parsedPath.name}.stream-ready`);
+}
+
+function buildPreviewVideoOptimizedMarkerPath(filePath) {
+  const parsedPath = path.parse(filePath);
+  return path.join(parsedPath.dir, `${parsedPath.name}.preview-optimized`);
+}
+
+async function hasFreshVideoStreamReadyMarker(filePath) {
+  try {
+    const [videoStats, markerStats] = await Promise.all([
+      fs.stat(filePath),
+      fs.stat(buildVideoStreamReadyMarkerPath(filePath)),
+    ]);
+
+    return Number(markerStats.mtimeMs || 0) >= Number(videoStats.mtimeMs || 0);
+  } catch {
+    return false;
+  }
+}
+
+async function markVideoStreamReady(filePath) {
+  await fs.writeFile(buildVideoStreamReadyMarkerPath(filePath), new Date().toISOString(), 'utf8');
+}
+
+async function hasFreshPreviewVideoOptimizedMarker(filePath) {
+  try {
+    const [videoStats, markerStats] = await Promise.all([
+      fs.stat(filePath),
+      fs.stat(buildPreviewVideoOptimizedMarkerPath(filePath)),
+    ]);
+
+    return Number(markerStats.mtimeMs || 0) >= Number(videoStats.mtimeMs || 0);
+  } catch {
+    return false;
+  }
+}
+
+async function markPreviewVideoOptimized(filePath) {
+  await fs.writeFile(
+    buildPreviewVideoOptimizedMarkerPath(filePath),
+    new Date().toISOString(),
+    'utf8',
+  );
+}
+
+async function transcodeVideoForStreaming(filePath, tempOutputPath) {
+  await runFfmpeg([
+    '-y',
+    '-i',
+    filePath,
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a?',
+    '-vf',
+    'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '20',
+    '-c:a',
+    'aac',
+    '-movflags',
+    '+faststart',
+    '-pix_fmt',
+    'yuv420p',
+    tempOutputPath,
+  ]);
+}
+
+async function optimizeVideoForStreaming(filePath, options = {}) {
+  const normalizedPath = toText(filePath);
+  const extension = path.extname(normalizedPath).toLowerCase();
+
+  if (!normalizedPath || extension !== '.mp4') {
+    return {
+      changed: false,
+      skipped: true,
+    };
+  }
+
+  if (!options.force && (await hasFreshVideoStreamReadyMarker(normalizedPath))) {
+    return {
+      changed: false,
+      skipped: false,
+    };
+  }
+
+  const parsedPath = path.parse(normalizedPath);
+  const tempOutputPath = path.join(
+    parsedPath.dir,
+    `${parsedPath.name}.stream-${randomUUID()}.mp4`,
+  );
+
+  try {
+    try {
+      await runFfmpeg([
+        '-y',
+        '-i',
+        normalizedPath,
+        '-map',
+        '0',
+        '-c',
+        'copy',
+        '-movflags',
+        '+faststart',
+        tempOutputPath,
+      ]);
+    } catch {
+      await transcodeVideoForStreaming(normalizedPath, tempOutputPath);
+    }
+
+    await fs.unlink(normalizedPath);
+    await fs.rename(tempOutputPath, normalizedPath);
+    await markVideoStreamReady(normalizedPath);
+
+    return {
+      changed: true,
+      skipped: false,
+    };
+  } catch (error) {
+    try {
+      await fs.unlink(tempOutputPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    throw error;
+  }
+}
+
+async function optimizePreviewVideoForPlayback(filePath, options = {}) {
+  const normalizedPath = toText(filePath);
+  const extension = path.extname(normalizedPath).toLowerCase();
+
+  if (!normalizedPath || extension !== '.mp4') {
+    return {
+      changed: false,
+      skipped: true,
+    };
+  }
+
+  const currentStats = await fs.stat(normalizedPath);
+  const previewOptimizationSizeThresholdBytes = 3 * 1024 * 1024;
+
+  if (!options.force && (await hasFreshPreviewVideoOptimizedMarker(normalizedPath))) {
+    return {
+      changed: false,
+      skipped: false,
+    };
+  }
+
+  if (!options.force && Number(currentStats.size || 0) <= previewOptimizationSizeThresholdBytes) {
+    await markPreviewVideoOptimized(normalizedPath);
+    return {
+      changed: false,
+      skipped: false,
+    };
+  }
+
+  const parsedPath = path.parse(normalizedPath);
+  const tempOutputPath = path.join(
+    parsedPath.dir,
+    `${parsedPath.name}.preview-${randomUUID()}.mp4`,
+  );
+
+  try {
+    await runFfmpeg([
+      '-y',
+      '-i',
+      normalizedPath,
+      '-map',
+      '0:v:0',
+      '-map',
+      '0:a?',
+      '-vf',
+      "scale='min(720,iw)':-2",
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '25',
+      '-maxrate',
+      '1600k',
+      '-bufsize',
+      '3200k',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '96k',
+      '-movflags',
+      '+faststart',
+      '-pix_fmt',
+      'yuv420p',
+      tempOutputPath,
+    ]);
+
+    await fs.unlink(normalizedPath);
+    await fs.rename(tempOutputPath, normalizedPath);
+    await markVideoStreamReady(normalizedPath);
+    await markPreviewVideoOptimized(normalizedPath);
+
+    return {
+      changed: true,
+      skipped: false,
+    };
+  } catch (error) {
+    try {
+      await fs.unlink(tempOutputPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    throw error;
+  }
 }
 
 async function generateVideoThumbnail(filePath) {
@@ -1254,6 +1480,105 @@ async function ensureSiteContentVideoThumbnails(siteContent, options = {}) {
   return {
     siteContent: changed ? nextContent : siteContent,
     changed,
+  };
+}
+
+async function ensureSiteContentVideoStreamingReady(siteContent, options = {}) {
+  const forcedAssetUrls = new Set(
+    Array.isArray(options.forceAssetUrls)
+      ? options.forceAssetUrls.map((assetUrl) => toText(assetUrl)).filter(Boolean)
+      : [],
+  );
+  let changed = false;
+  let optimizedCount = 0;
+
+  for (const model of siteContent.models) {
+    for (const item of model.gallery || []) {
+      if (item.type !== 'video' || !toText(item.src)) {
+        continue;
+      }
+
+      const managedVideoPath = resolveManagedUploadPath(item.src);
+
+      if (!managedVideoPath) {
+        continue;
+      }
+
+      const optimized = await optimizeVideoForStreaming(managedVideoPath, {
+        force: forcedAssetUrls.has(toText(item.src)),
+      });
+
+      if (optimized.changed) {
+        changed = true;
+        optimizedCount += 1;
+      }
+    }
+
+    for (const item of model.fullContentVideos || []) {
+      const videoUrl = toText(item.videoUrl);
+
+      if (!videoUrl) {
+        continue;
+      }
+
+      const managedVideoPath = resolveManagedUploadPath(videoUrl);
+
+      if (!managedVideoPath) {
+        continue;
+      }
+
+      const optimized = await optimizeVideoForStreaming(managedVideoPath, {
+        force: forcedAssetUrls.has(videoUrl),
+      });
+
+      if (optimized.changed) {
+        changed = true;
+        optimizedCount += 1;
+      }
+    }
+  }
+
+  return {
+    changed,
+    optimizedCount,
+  };
+}
+
+async function ensureSiteContentPreviewVideosOptimized(siteContent, options = {}) {
+  const forcedAssetUrls = new Set(
+    Array.isArray(options.forceAssetUrls)
+      ? options.forceAssetUrls.map((assetUrl) => toText(assetUrl)).filter(Boolean)
+      : [],
+  );
+  let changed = false;
+  let optimizedCount = 0;
+
+  for (const model of siteContent.models) {
+    for (const item of model.gallery || []) {
+      if (item.type !== 'video' || !toText(item.src)) {
+        continue;
+      }
+
+      const managedVideoPath = resolveManagedUploadPath(item.src);
+
+      if (!managedVideoPath) {
+        continue;
+      }
+
+      const optimized = await optimizePreviewVideoForPlayback(managedVideoPath, {
+        force: forcedAssetUrls.has(toText(item.src)),
+      });
+
+      if (optimized.changed) {
+        changed = true;
+        optimizedCount += 1;
+      }
+    }
+  }
+
+  return {
+    changed,
+    optimizedCount,
   };
 }
 
@@ -2076,7 +2401,26 @@ const app = express();
 app.set('trust proxy', true);
 
 app.use(express.json({ limit: '20mb' }));
-app.use('/uploads', express.static(uploadsDir));
+
+const uploadsStaticMiddleware = express.static(uploadsDir);
+
+app.use('/uploads', (req, res, next) => {
+  uploadsStaticMiddleware(req, res, (error) => {
+    const isUnsatisfiableRangeError =
+      Boolean(error) &&
+      (error.status === 416 ||
+        error.statusCode === 416 ||
+        error.name === 'RangeNotSatisfiableError');
+
+    if (isUnsatisfiableRangeError && req.headers.range && !res.headersSent) {
+      delete req.headers.range;
+      uploadsStaticMiddleware(req, res, next);
+      return;
+    }
+
+    next(error);
+  });
+});
 
 app.get('/api/admin/session', (req, res) => {
   res.json({ authenticated: isAuthenticatedRequest(req) });
@@ -2424,6 +2768,14 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
     if (trimMeta) {
       await trimUploadedVideo(uploadedFilePath, trimMeta);
     }
+
+    if (uploadedMediaType === 'video') {
+      await optimizeVideoForStreaming(uploadedFilePath, { force: true });
+
+      if (toText(uploadMeta.bucket) === 'model-media') {
+        await optimizePreviewVideoForPlayback(uploadedFilePath, { force: true });
+      }
+    }
   } catch (error) {
     console.error('[upload] falha ao cortar video:', error);
 
@@ -2506,6 +2858,20 @@ await billingStore.ensureStorage();
 const migratedSiteContent = await migrateSiteContentFiles(await readSiteContent());
 await writeSiteContent(migratedSiteContent);
 await moveLooseRootUploadsToLegacy();
+const optimizedPreviewVideos = await ensureSiteContentPreviewVideosOptimized(migratedSiteContent);
+const optimizedStreamingVideos = await ensureSiteContentVideoStreamingReady(migratedSiteContent);
+
+if (optimizedPreviewVideos.optimizedCount > 0) {
+  console.log(
+    `[video-preview] ${optimizedPreviewVideos.optimizedCount} previa(s) compactadas para carregamento rapido.`,
+  );
+}
+
+if (optimizedStreamingVideos.optimizedCount > 0) {
+  console.log(
+    `[video-stream] ${optimizedStreamingVideos.optimizedCount} video(s) preparados para inicio rapido.`,
+  );
+}
 
 const telegramBot = startTelegramBot({
   token: telegramBotToken,
