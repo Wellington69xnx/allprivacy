@@ -1,6 +1,7 @@
 import { getHomePath } from '../lib/modelRoute';
 import type { StaticInfoSection } from '../lib/staticInfo';
 import { BrandMark } from './BrandMark';
+import { HeaderQuickAccessMenu } from './HeaderQuickAccessMenu';
 import { SiteFooter } from './SiteFooter';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -41,6 +42,7 @@ export function StaticInfoPage({
               <span>{'Página inicial'}</span>
             </a>
             <BrandMark href="/" />
+            <HeaderQuickAccessMenu className="absolute right-0 top-1/2 -translate-y-1/2 sm:right-5" />
           </div>
 
           <div className="mx-auto flex max-w-5xl px-1 sm:hidden">

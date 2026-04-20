@@ -7,6 +7,8 @@ import type {
 } from '../types';
 import { AllPrivacyVideoPlayer } from './AllPrivacyVideoPlayer';
 import { BrandMark } from './BrandMark';
+import { CtaBonusNote } from './CtaBonusNote';
+import { HeaderQuickAccessMenu } from './HeaderQuickAccessMenu';
 import { HeartIcon, VerifiedBadgeIcon } from './icons';
 import { SiteFooter } from './SiteFooter';
 import { TelegramCTA } from './TelegramCTA';
@@ -354,6 +356,7 @@ export function ModelVideoPage({
             <div className="hidden sm:block">
               <BrandMark href={getHomePath()} />
             </div>
+            <HeaderQuickAccessMenu className="absolute right-0 top-1/2 -translate-y-1/2 sm:right-5" />
           </div>
 
           <header className="pt-24 sm:pt-8">
@@ -388,9 +391,10 @@ export function ModelVideoPage({
                       label="Entrar no Grupo VIP"
                       className="min-h-16 w-auto min-w-[400px] px-8 py-4 text-[1.22rem]"
                     />
-                    <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-                      {'Acesso imediato'}
-                    </span>
+                    <CtaBonusNote
+                      className="text-[11px] font-medium tracking-[0.18em] text-white/45"
+                      logoClassName="-translate-y-[0.06em] h-[2.36em] w-auto object-contain brightness-110"
+                    />
                   </div>
                 </div>
               </div>
@@ -427,9 +431,12 @@ export function ModelVideoPage({
               label="Entrar no Grupo VIP"
               className="min-h-11 w-full px-5 py-3 text-sm"
             />
-            <span className="mt-1 block text-center text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
-              {'Acesso imediato'}
-            </span>
+            <div className="mt-1 flex justify-center">
+              <CtaBonusNote
+                className="text-[10px] font-medium tracking-[0.14em] text-white/40"
+                logoClassName="-translate-y-[0.05em] h-[2.22em] w-auto object-contain brightness-110"
+              />
+            </div>
           </div>
 
           <motion.section

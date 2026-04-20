@@ -27,6 +27,8 @@ const telegramPhotoUploadLimitBytes = 10 * 1024 * 1024;
 const telegramOtherUploadLimitBytes = 50 * 1024 * 1024;
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 3001);
+const uploadMaxFileSizeMb = Math.max(1, Number(process.env.UPLOAD_MAX_FILE_SIZE_MB || 512) || 512);
+const uploadMaxFileSizeBytes = uploadMaxFileSizeMb * 1024 * 1024;
 const sitePublicUrl = process.env.SITE_PUBLIC_URL || `http://localhost:${port}`;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
 const telegramGroupUrl = process.env.TELEGRAM_GROUP_URL || sitePublicUrl;
@@ -597,6 +599,65 @@ async function runFfmpeg(args) {
   });
 }
 
+async function runFfprobe(args) {
+  return await new Promise((resolve, reject) => {
+    const process = spawn('ffprobe', args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+
+    process.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    process.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    process.on('error', (error) => {
+      reject(error);
+    });
+
+    process.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+
+      reject(
+        new Error(
+          stderr.trim() || `Falha ao consultar o video com ffprobe (codigo ${String(code)}).`,
+        ),
+      );
+    });
+  });
+}
+
+async function getVideoDurationSeconds(filePath) {
+  try {
+    const rawOutput = await runFfprobe([
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ]);
+    const parsed = Number(String(rawOutput || '').trim());
+
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 async function trimUploadedVideo(filePath, trimMeta) {
   const clipDuration = Math.max(0.1, trimMeta.endSeconds - trimMeta.startSeconds);
   const parsedPath = path.parse(filePath);
@@ -871,9 +932,13 @@ async function optimizePreviewVideoForPlayback(filePath, options = {}) {
   }
 
   const currentStats = await fs.stat(normalizedPath);
-  const previewOptimizationSizeThresholdBytes = 3 * 1024 * 1024;
+  const previewOptimizationSizeThresholdBytes = Math.round(2.5 * 1024 * 1024);
 
-  if (!options.force && (await hasFreshPreviewVideoOptimizedMarker(normalizedPath))) {
+  if (
+    !options.force &&
+    (await hasFreshPreviewVideoOptimizedMarker(normalizedPath)) &&
+    Number(currentStats.size || 0) <= previewOptimizationSizeThresholdBytes
+  ) {
     return {
       changed: false,
       skipped: false,
@@ -893,6 +958,25 @@ async function optimizePreviewVideoForPlayback(filePath, options = {}) {
     parsedPath.dir,
     `${parsedPath.name}.preview-${randomUUID()}.mp4`,
   );
+  const durationSeconds = await getVideoDurationSeconds(normalizedPath);
+  const targetTotalBitrateKbps = durationSeconds
+    ? Math.max(
+        320,
+        Math.min(
+          560,
+          Math.floor(
+            (previewOptimizationSizeThresholdBytes * 8 * 0.92) /
+              Math.max(1, durationSeconds) /
+              1000,
+          ),
+        ),
+      )
+    : 520;
+  const audioBitrateKbps = durationSeconds && durationSeconds > 30 ? 48 : 64;
+  const videoBitrateKbps = Math.max(260, targetTotalBitrateKbps - audioBitrateKbps);
+  const maxrateKbps = Math.max(videoBitrateKbps + 80, Math.round(videoBitrateKbps * 1.12));
+  const bufferSizeKbps = maxrateKbps * 2;
+  const maxPreviewWidth = durationSeconds && durationSeconds > 30 ? 480 : 540;
 
   try {
     await runFfmpeg([
@@ -904,21 +988,21 @@ async function optimizePreviewVideoForPlayback(filePath, options = {}) {
       '-map',
       '0:a?',
       '-vf',
-      "scale='min(720,iw)':-2",
+      `scale='min(${String(maxPreviewWidth)},iw)':-2`,
       '-c:v',
       'libx264',
       '-preset',
       'veryfast',
-      '-crf',
-      '25',
+      '-b:v',
+      `${String(videoBitrateKbps)}k`,
       '-maxrate',
-      '1600k',
+      `${String(maxrateKbps)}k`,
       '-bufsize',
-      '3200k',
+      `${String(bufferSizeKbps)}k`,
       '-c:a',
       'aac',
       '-b:a',
-      '96k',
+      `${String(audioBitrateKbps)}k`,
       '-movflags',
       '+faststart',
       '-pix_fmt',
@@ -2393,7 +2477,7 @@ const upload = multer({
     },
   }),
   limits: {
-    fileSize: 250 * 1024 * 1024,
+    fileSize: uploadMaxFileSizeBytes,
   },
 });
 
@@ -2834,6 +2918,51 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
     mimeType: finalMimeType,
     size: finalStats.size,
     thumbnailUrl,
+  });
+});
+
+app.use((error, req, res, next) => {
+  if (!error) {
+    next();
+    return;
+  }
+
+  const normalizedPath = toText(req.path);
+
+  if (!normalizedPath.startsWith('/api/')) {
+    next(error);
+    return;
+  }
+
+  const errorName = toText(error?.name);
+  const errorCode = toText(error?.code);
+  let status = Number(error?.status || error?.statusCode || 500);
+  let message =
+    error instanceof Error && toText(error.message)
+      ? toText(error.message)
+      : 'Nao foi possivel processar a requisicao agora.';
+
+  if (errorName === 'MulterError' && errorCode === 'LIMIT_FILE_SIZE') {
+    status = 413;
+    message = `O arquivo ficou acima do limite aceito pelo servidor (${String(uploadMaxFileSizeMb)} MB).`;
+  } else if (errorName === 'MulterError') {
+    status = 400;
+    message = 'Nao foi possivel processar o upload recebido.';
+  } else if (status === 413) {
+    message = `O arquivo ficou acima do limite aceito pelo servidor (${String(uploadMaxFileSizeMb)} MB).`;
+  } else if (status === 401 && !message) {
+    message = 'Sua sessao do admin expirou. Entre novamente e tente de novo.';
+  }
+
+  console.error(`[api] falha em ${normalizedPath || 'rota desconhecida'}:`, error);
+
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+
+  res.status(Number.isFinite(status) && status > 0 ? status : 500).json({
+    message,
   });
 });
 

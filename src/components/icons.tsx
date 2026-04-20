@@ -228,3 +228,22 @@ export function StarIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function BellIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M12 4.2a4.8 4.8 0 0 0-4.8 4.8v2.1c0 .8-.2 1.6-.6 2.2l-1.2 2a1 1 0 0 0 .86 1.5h11.6a1 1 0 0 0 .86-1.5l-1.2-2a4.2 4.2 0 0 1-.6-2.2V9A4.8 4.8 0 0 0 12 4.2Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.8 18.2a2.5 2.5 0 0 0 4.4 0"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasWarmVideo, primeKnownWarmVideos } from '../lib/mediaWarmCache';
 import type { ModelProfile } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
+import { CtaBonusNote } from './CtaBonusNote';
 import { CloseIcon } from './icons';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -287,9 +288,12 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
                           label="Entrar no GrupoVIP"
                           className="min-h-12 w-auto px-6 py-3 text-base"
                         />
-                        <span className="mt-1.5 block text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-                          {'Acesso imediato'}
-                        </span>
+                        <div className="mt-1.5 flex justify-center">
+                          <CtaBonusNote
+                            className="text-[11px] font-medium tracking-[0.18em] text-white/45"
+                            logoClassName="-translate-y-[0.06em] h-[2.36em] w-auto object-contain brightness-110"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -416,9 +420,12 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
                   label="Entrar no GrupoVIP"
                   className="min-h-12 w-full px-5 py-3 text-sm"
                 />
-                <span className="mt-1 block text-center text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
-                  {'Acesso imediato'}
-                </span>
+                <div className="mt-1 flex justify-center">
+                  <CtaBonusNote
+                    className="text-[10px] font-medium tracking-[0.14em] text-white/40"
+                    logoClassName="-translate-y-[0.05em] h-[2.22em] w-auto object-contain brightness-110"
+                  />
+                </div>
               </div>
             </motion.div>
           </div>

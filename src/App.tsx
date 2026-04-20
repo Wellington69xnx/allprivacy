@@ -37,6 +37,7 @@ import type { PreviewCard } from './types';
 const TELEGRAM_GROUP_URL =
   import.meta.env.VITE_TELEGRAM_GROUP_URL || 'https://t.me/seu_grupo_vip';
 const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
+const XV_DOWNLOAD_BOT_URL = 'https://t.me/xv_download_bot';
 
 type CurrentView =
   | { type: 'site' }
@@ -164,6 +165,65 @@ export default function App() {
   const imagePreviewCards = useMemo(
     () => getRandomPreviewCardsByType(visibleHomeModels, 'image', 10),
     [visibleHomeModels],
+  );
+  const xvideosBotPreviewCards = useMemo<PreviewCard[]>(
+    () => [
+      {
+        id: 'xv-bot-1',
+        ownerId: 'xvideosred-bot',
+        owner: 'XVideosRED BOT',
+        ownerHandle: '@xv_download_bot',
+        ownerProfileImage: '/uploads/_legacy-root/xv-profile.png',
+        ownerCoverImage: '/uploads/_legacy-root/xv.png',
+        title: 'XVideosRED Bot 1',
+        type: 'image',
+        thumbnail: '/uploads/_legacy-root/xv1.PNG',
+        accentFrom: '#991b1b',
+        accentTo: '#7c3aed',
+      },
+      {
+        id: 'xv-bot-2',
+        ownerId: 'xvideosred-bot',
+        owner: 'XVideosRED BOT',
+        ownerHandle: '@xv_download_bot',
+        ownerProfileImage: '/uploads/_legacy-root/xv-profile.png',
+        ownerCoverImage: '/uploads/_legacy-root/xv.png',
+        title: 'XVideosRED Bot 2',
+        type: 'image',
+        thumbnail: '/uploads/_legacy-root/xv2.PNG',
+        accentFrom: '#991b1b',
+        accentTo: '#7c3aed',
+      },
+      {
+        id: 'xv-bot-3',
+        ownerId: 'xvideosred-bot',
+        owner: 'XVideosRED BOT',
+        ownerHandle: '@xv_download_bot',
+        ownerProfileImage: '/uploads/_legacy-root/xv-profile.png',
+        ownerCoverImage: '/uploads/_legacy-root/xv.png',
+        title: 'XVideosRED Bot 3',
+        type: 'image',
+        thumbnail: '/uploads/_legacy-root/xv3.PNG',
+        accentFrom: '#991b1b',
+        accentTo: '#7c3aed',
+      },
+      {
+        id: 'xv-bot-video',
+        ownerId: 'xvideosred-bot',
+        owner: 'XVideosRED BOT',
+        ownerHandle: '@xv_download_bot',
+        ownerProfileImage: '/uploads/_legacy-root/xv-profile.png',
+        ownerCoverImage: '/uploads/_legacy-root/xv.png',
+        title: 'XVideosRED Bot Vídeo',
+        type: 'video',
+        thumbnail: '/uploads/_legacy-root/xv3.PNG',
+        src: '/uploads/_legacy-root/xv.MP4',
+        disableAutoplay: true,
+        accentFrom: '#991b1b',
+        accentTo: '#7c3aed',
+      },
+    ],
+    [],
   );
 
   useLayoutEffect(() => {
@@ -629,11 +689,32 @@ export default function App() {
           />
 
           <TelegramProof items={siteContent.groupProofItems} />
+          <PreviewCarousel
+            eyebrow="AllPrivacy.site"
+            title="XVideosRED BOT"
+            description="Baixe vídeos do Xvideos Red usando nosso bot. Membros do nosso Grupo VIP recebem 5 créditos diários, e novos usuários começam com 2 créditos. Você também pode ganhar créditos indicando amigos."
+            items={xvideosBotPreviewCards}
+            emptyMessage="Nenhum card do XVideosRED BOT disponível no momento."
+            ctaHref={XV_DOWNLOAD_BOT_URL}
+            ctaLabel="Acessar Bot"
+            ctaTitle="XVideosRED BOT"
+            ctaDescription="Abra o bot de download para usar seus créditos, baixar vídeos do Xvideos Red e acompanhar as vantagens disponíveis para membros do Grupo VIP."
+            ctaScrollTargetId={undefined}
+            variant="portrait"
+            initialScrollIndex={1}
+            desktopInitialScrollIndex={0}
+            scrollAlign="center"
+            desktopScrollAlign="start"
+            sectionClassName="pt-11 sm:pt-10"
+            showOwnerBadge={false}
+            showCtaCard={false}
+          />
           <ModelsStories
             models={visibleHomeModels}
             onSelect={(model) => setSelectedModelId(model.id)}
             ctaTargetId="cta-final"
           />
+
 
           <motion.section
             id="cta-final"

@@ -268,7 +268,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     try {
       const parsed = JSON.parse(rawMessage) as { message?: string };
       nextMessage = parsed.message || nextMessage;
-    } catch {
+    } catch (error) {
       // Se nao vier JSON, mantemos o texto bruto retornado pelo servidor.
     }
 
@@ -276,6 +276,39 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function parseXhrErrorMessage(
+  request: XMLHttpRequest,
+  fallbackMessage: string,
+) {
+  if (request.status === 401) {
+    return 'Sua sessão do admin expirou. Entre novamente e tente de novo.';
+  }
+
+  if (request.status === 413) {
+    return 'O arquivo ficou acima do limite aceito pelo servidor da VPS.';
+  }
+
+  const rawMessage = String(request.responseText || '').trim();
+
+  if (!rawMessage) {
+    return fallbackMessage;
+  }
+
+  try {
+    const parsed = JSON.parse(rawMessage) as { message?: string };
+    if (parsed?.message) {
+      return parsed.message;
+    }
+  } catch {
+    const withoutTags = rawMessage.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (withoutTags) {
+      return withoutTags;
+    }
+  }
+
+  return rawMessage;
 }
 
 export function useSiteContent() {
@@ -308,7 +341,7 @@ export function useSiteContent() {
       setSiteContent(data.siteContent);
       writeCachedSiteContent(data.siteContent);
       setError(null);
-    } catch {
+    } catch (error) {
       const cached = readCachedSiteContent();
 
       if (cached) {
@@ -350,9 +383,13 @@ export function useSiteContent() {
       setError(null);
 
       return data.siteContent;
-    } catch {
-      setError('Não foi possível salvar o conteúdo no projeto.');
-      throw new Error('save_failed');
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Nao foi possivel salvar o conteudo no projeto.';
+      setError(message);
+      throw new Error(message);
     } finally {
       setIsSaving(false);
     }
@@ -414,6 +451,7 @@ export function useSiteContent() {
           const request = new XMLHttpRequest();
           request.open('POST', `${endpointUrl.pathname}${endpointUrl.search}`);
           request.withCredentials = true;
+          request.timeout = 10 * 60 * 1000;
 
           request.upload.onprogress = (event) => {
             if (!event.lengthComputable) {
@@ -428,14 +466,27 @@ export function useSiteContent() {
           };
 
           request.onerror = () => {
-      setError('Não foi possível enviar o arquivo para o projeto.');
-            reject(new Error('upload_failed'));
+            const message =
+              'Não foi possível enviar o arquivo para o servidor. Confira a conexão e tente novamente.';
+            setError(message);
+            reject(new Error(message));
+          };
+
+          request.ontimeout = () => {
+            const message =
+              'O envio demorou demais para responder. Tente um arquivo menor ou aguarde o servidor terminar o processamento.';
+            setError(message);
+            reject(new Error(message));
           };
 
           request.onload = () => {
             if (request.status < 200 || request.status >= 300) {
-      setError('Não foi possível enviar o arquivo para o projeto.');
-              reject(new Error(request.responseText || 'upload_failed'));
+              const message = parseXhrErrorMessage(
+                request,
+                'Não foi possível enviar o arquivo para o projeto.',
+              );
+              setError(message);
+              reject(new Error(message));
               return;
             }
 
@@ -444,15 +495,17 @@ export function useSiteContent() {
               setError(null);
               resolve(parsed);
             } catch {
-      setError('Não foi possível enviar o arquivo para o projeto.');
-              reject(new Error('upload_failed'));
+              const message = 'O servidor respondeu ao upload, mas em um formato inválido.';
+              setError(message);
+              reject(new Error(message));
             }
           };
 
           request.send(formData);
         } catch {
-      setError('Não foi possível enviar o arquivo para o projeto.');
-          reject(new Error('upload_failed'));
+          const message = 'Não foi possível preparar o envio do arquivo.';
+          setError(message);
+          reject(new Error(message));
         }
       }),
     [],
@@ -985,3 +1038,4 @@ export function useSiteContent() {
     warmSingleTelegramMediaCache,
   };
 }
+

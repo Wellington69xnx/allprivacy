@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { scrollToTarget } from '../lib/scrollToTarget';
 import { BrandMark } from './BrandMark';
+import { CtaBonusNote } from './CtaBonusNote';
+import { HeaderQuickAccessMenu } from './HeaderQuickAccessMenu';
 import { ChevronDownIcon } from './icons';
 import { TelegramCTA } from './TelegramCTA';
 
@@ -173,23 +175,35 @@ export function HeroSection({ ctaHref, backgroundSrc, onBackgroundReady }: HeroS
         style={{ paddingTop: 'max(env(safe-area-inset-top), 1.25rem)' }}
       >
         <BrandMark />
+        <HeaderQuickAccessMenu className="absolute right-2 top-1/2 -translate-y-1/2 sm:right-5" />
       </div>
 
       <div
-        className="relative mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center justify-center px-5 pb-36 pt-12 text-center"
+        className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-3 pb-36 pt-12 text-center sm:px-5"
         style={heroViewportStyle}
       >
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: 'easeOut' }}
-          className="space-y-4"
+          className="w-full space-y-6"
         >
-          <h1 className="font-display text-[2rem] font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-            {'AllPrivacyVIP no Telegram.'}
+          <h1 className="mx-auto font-display text-[2.28rem] font-semibold leading-[0.94] tracking-[-0.035em] text-white sm:text-5xl sm:leading-tight sm:tracking-tight">
+            <span>AllPrivacy</span>
+            <span className="text-rose-400">VIP</span>
+            <span>{' + '}</span>
+            <span className="inline-flex -translate-y-[0.06em] align-middle">
+              <img
+                src="/uploads/_legacy-root/xv.png"
+                alt="XVideosRED"
+                className="inline-block h-[2.16em] w-auto object-contain align-middle brightness-110"
+                loading="eager"
+              />
+            </span>
+            <span>{'  no Telegram.'}</span>
           </h1>
-          <p className="mx-auto max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
-            {'Encontre tudo o que você procura em um só lugar.'}
+          <p className="mx-auto max-w-[22rem] pt-2 text-[17px] leading-7 text-zinc-200 sm:max-w-2xl sm:text-[1.08rem] sm:leading-8">
+            {'Entre em nosso GrupoVIP e tenha acesso a conteúdos exclusivos e ainda receba créditos grátis para aproveitar no Xvideos RED Download.'}
           </p>
         </motion.div>
       </div>
@@ -204,9 +218,10 @@ export function HeroSection({ ctaHref, backgroundSrc, onBackgroundReady }: HeroS
           className="w-full max-w-sm sm:w-auto sm:min-w-[320px]"
           scrollTargetId="cta-final"
         />
-        <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/55">
-          Entrada imediata
-        </span>
+        <CtaBonusNote
+          className="text-[12px] font-medium tracking-[0.22em] text-white/55 sm:text-[13px]"
+          logoClassName="-translate-y-[0.08em] h-[2.72em] w-auto object-contain brightness-110"
+        />
       </div>
 
       <div

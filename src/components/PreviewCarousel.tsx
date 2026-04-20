@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState, type UIEventHandler, type WheelEventHandler } from 'react';
-import type { PreviewCard } from '../types';
+import type { MediaPreviewDialogSelection, PreviewCard } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
-import { ChevronLeftIcon, ChevronRightIcon } from './icons';
+import { CtaBonusNote } from './CtaBonusNote';
+import { ChevronLeftIcon, ChevronRightIcon, PlayIcon } from './icons';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { SectionHeader } from './SectionHeader';
 import { TelegramCTA } from './TelegramCTA';
@@ -25,6 +26,11 @@ interface PreviewCarouselProps {
   variant?: 'wide' | 'portrait';
   sectionClassName?: string;
   preloadAdjacentVideoCards?: number;
+  ctaTitle?: string;
+  ctaDescription?: string;
+  ctaScrollTargetId?: string;
+  showOwnerBadge?: boolean;
+  showCtaCard?: boolean;
 }
 
 export function PreviewCarousel({
@@ -45,10 +51,15 @@ export function PreviewCarousel({
   variant = 'wide',
   sectionClassName,
   preloadAdjacentVideoCards = 0,
+  ctaTitle = 'Entrar no Grupo',
+  ctaDescription = 'Entre no grupo VIP e tenha acesso a conteúdos exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, CloseFans e Telegram VIP. Tudo organizado em categorias para facilitar sua experiência.',
+  ctaScrollTargetId = 'cta-final',
+  showOwnerBadge = true,
+  showCtaCard = true,
 }: PreviewCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollSyncFrameRef = useRef<number | null>(null);
-  const [selectedItem, setSelectedItem] = useState<PreviewCard | null>(null);
+  const [selectedItem, setSelectedItem] = useState<MediaPreviewDialogSelection | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const hasVideoItems = items.some((item) => item.type === 'video');
   const usePortraitCards =
@@ -307,6 +318,48 @@ export function PreviewCarousel({
     });
   };
 
+  const buildDialogSelection = (
+    item: PreviewCard,
+    element: HTMLElement,
+  ): MediaPreviewDialogSelection => {
+    if (item.type !== 'video') {
+      return { item };
+    }
+
+    const video = element.querySelector('video');
+
+    if (!video) {
+      return { item };
+    }
+
+    let handoffPoster = '';
+
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+
+        if (context) {
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          handoffPoster = canvas.toDataURL('image/jpeg', 0.76);
+        }
+      } catch {
+        handoffPoster = '';
+      }
+    }
+
+    return {
+      item,
+      initialPlaybackTime:
+        Number.isFinite(video.currentTime) && video.currentTime > 0
+          ? video.currentTime
+          : undefined,
+      handoffPoster: handoffPoster || undefined,
+    };
+  };
+
   return (
     <motion.section
       id={id}
@@ -351,33 +404,53 @@ export function PreviewCarousel({
                     className={cardClassName}
                   >
                   <div className={aspectClassName}>
-                    <div className="absolute inset-x-3 top-3 z-10">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onOwnerClick?.(item);
-                        }}
-                        className="inline-flex rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75 backdrop-blur-md transition hover:bg-black/65 hover:text-white disabled:cursor-default disabled:hover:bg-black/45 disabled:hover:text-white/75"
-                        disabled={!onOwnerClick}
-                      >
-                        {item.owner}
-                      </button>
-                    </div>
+                    {showOwnerBadge ? (
+                      <div className="absolute inset-x-3 top-3 z-10">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onOwnerClick?.(item);
+                          }}
+                          className="inline-flex rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75 backdrop-blur-md transition hover:bg-black/65 hover:text-white disabled:cursor-default disabled:hover:bg-black/45 disabled:hover:text-white/75"
+                          disabled={!onOwnerClick}
+                        >
+                          {item.owner}
+                        </button>
+                      </div>
+                    ) : null}
                     <div
                       className="h-full w-full cursor-pointer"
-                      onClick={() => setSelectedItem(item)}
+                      onClick={(event) =>
+                        setSelectedItem(buildDialogSelection(item, event.currentTarget))
+                      }
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          setSelectedItem(item);
+                          setSelectedItem(buildDialogSelection(item, event.currentTarget));
                         }
                       }}
                       tabIndex={0}
                       role="button"
                       aria-label={`Abrir visualização de ${item.title}`}
                     >
+                      {item.type === 'video' && item.disableAutoplay ? (
+                        <>
+                          <img
+                            src={item.thumbnail}
+                            alt={item.title}
+                            className="h-full w-full object-cover object-center"
+                            loading="lazy"
+                          />
+                          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(3,3,5,0.08),rgba(3,3,5,0.2),rgba(3,3,5,0.42))]" />
+                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                            <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-black/48 text-white shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md md:h-[4.5rem] md:w-[4.5rem]">
+                              <PlayIcon className="ml-1 h-7 w-7 md:h-8 md:w-8" />
+                            </span>
+                          </div>
+                        </>
+                      ) : (
                         <AutoplayMedia
                           type={item.type}
                           src={item.src}
@@ -385,45 +458,42 @@ export function PreviewCarousel({
                           alt={item.title}
                           className="h-full w-full"
                           fitMode={item.type === 'video' && variant === 'wide' ? 'contain' : 'cover'}
-                        showVolumeToggle
-                        forceActivateVideo={
-                          item.type === 'video' &&
-                          preloadAdjacentVideoCards > 0 &&
-                          Math.abs(index - activeIndex) <= preloadAdjacentVideoCards
-                        }
+                          showVolumeToggle
+                          forceActivateVideo={
+                            item.type === 'video' &&
+                            preloadAdjacentVideoCards > 0 &&
+                            Math.abs(index - activeIndex) <= preloadAdjacentVideoCards
+                          }
                         />
-                      </div>
+                      )}
+                    </div>
                     </div>
                   </article>
               ))}
 
-              <div data-scroll-card className={ctaCardClassName}>
-                <div className={ctaContentClassName}>
-                  <div className={ctaTextBlockClassName}>
-                    <h3 className={ctaTitleClassName}>Entrar no Grupo</h3>
-                    <p className={ctaDescriptionClassName}>
-                      {
-                        'Entre no grupo VIP e tenha acesso a conteúdos exclusivos de diversas modelos do Privacy, OnlyFans, XvideosRED, CloseFans e Telegram VIP.'
-                      }
-                      <br />
-                      <br />
-                      {'Tudo organizado em categorias para facilitar sua experiência.'}
-                    </p>
-                  </div>
+              {showCtaCard ? (
+                <div data-scroll-card className={ctaCardClassName}>
+                  <div className={ctaContentClassName}>
+                    <div className={ctaTextBlockClassName}>
+                      <h3 className={ctaTitleClassName}>{ctaTitle}</h3>
+                      <p className={ctaDescriptionClassName}>{ctaDescription}</p>
+                    </div>
 
-                  <div className="grid gap-1.5 sm:gap-2">
-                    <TelegramCTA
-                      href={ctaHref}
-                      label={ctaLabel}
-                      className={ctaButtonClassName}
-                      scrollTargetId="cta-final"
-                    />
-                    <span className="text-center text-[10px] font-medium uppercase tracking-[0.16em] text-white/45 sm:text-[11px] sm:tracking-[0.18em]">
-                      {'Aprovação Imediata'}
-                    </span>
+                    <div className="grid gap-1.5 sm:gap-2">
+                      <TelegramCTA
+                        href={ctaHref}
+                        label={ctaLabel}
+                        className={ctaButtonClassName}
+                        scrollTargetId={ctaScrollTargetId}
+                      />
+                      <CtaBonusNote
+                        className="text-[10px] font-medium tracking-[0.16em] text-white/45 sm:text-[11px] sm:tracking-[0.18em]"
+                        logoClassName="-translate-y-[0.06em] h-[2.3em] w-auto object-contain brightness-110"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </div>
           </div>
 
@@ -454,7 +524,7 @@ export function PreviewCarousel({
         </div>
       )}
 
-      <MediaPreviewDialog item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <MediaPreviewDialog selection={selectedItem} onClose={() => setSelectedItem(null)} />
     </motion.section>
   );
 }

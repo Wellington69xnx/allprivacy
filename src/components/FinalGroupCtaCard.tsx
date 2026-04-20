@@ -1,4 +1,5 @@
 import type { Ref } from 'react';
+import { CtaBonusNote } from './CtaBonusNote';
 import { TelegramCTA } from './TelegramCTA';
 
 const perks = [
@@ -57,9 +58,10 @@ export function FinalGroupCtaCard({ ctaHref, buttonRef }: FinalGroupCtaCardProps
           label="Entrar no Grupo"
           className="w-full sm:min-w-[360px] sm:w-auto sm:text-[1.08rem]"
         />
-        <span className="text-center text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-          {'Acesso imediato'}
-        </span>
+        <CtaBonusNote
+          className="text-[11px] font-medium tracking-[0.18em] text-white/45"
+          logoClassName="-translate-y-[0.06em] h-[2.36em] w-auto object-contain brightness-110"
+        />
       </div>
     </div>
   );

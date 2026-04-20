@@ -10,15 +10,18 @@ import {
   getRememberedMediaPlaybackTime,
   rememberMediaPlaybackTime,
 } from '../lib/mediaPlaybackMemory';
-import type { PreviewCard } from '../types';
+import type { MediaPreviewDialogSelection } from '../types';
 import { CloseIcon, VolumeOffIcon, VolumeOnIcon } from './icons';
 
 interface MediaPreviewDialogProps {
-  item: PreviewCard | null;
+  selection: MediaPreviewDialogSelection | null;
   onClose: () => void;
 }
 
-export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
+export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogProps) {
+  const item = selection?.item ?? null;
+  const handoffPoster = selection?.handoffPoster || '';
+  const initialPlaybackTime = selection?.initialPlaybackTime ?? 0;
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioFocusIdRef = useRef(`media-dialog-audio-${Math.random().toString(36).slice(2)}`);
   const loadingStartedAtRef = useRef(0);
@@ -239,9 +242,9 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                   ) : null}
                   {item.type === 'video' && item.src ? (
                     <>
-                      {item.thumbnail ? (
+                      {handoffPoster || item.thumbnail ? (
                         <img
-                          src={item.thumbnail}
+                          src={handoffPoster || item.thumbnail}
                           alt=""
                           aria-hidden="true"
                           className={`absolute inset-0 z-10 h-full w-full object-contain transition-opacity duration-300 ${
@@ -263,7 +266,7 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                       <video
                         ref={videoRef}
                         src={item.src}
-                        poster={item.thumbnail}
+                        poster={handoffPoster || item.thumbnail}
                         className={`max-h-[74dvh] w-full object-contain transition-opacity duration-300 ${
                           isPlaybackVisible ? 'opacity-100' : 'opacity-0'
                         }`}
@@ -273,13 +276,13 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                         playsInline
                         preload="auto"
                         onLoadedData={() => {
-                          if (!item.thumbnail) {
+                          if (!(handoffPoster || item.thumbnail)) {
                             revealPlaybackOnRenderedFrame();
                           }
                         }}
                         onCanPlay={() => {
                           attemptPlaybackStart();
-                          if (!item.thumbnail) {
+                          if (!(handoffPoster || item.thumbnail)) {
                             revealPlaybackOnRenderedFrame();
                           }
                         }}
@@ -289,7 +292,10 @@ export function MediaPreviewDialog({ item, onClose }: MediaPreviewDialogProps) {
                             return;
                           }
 
-                          const rememberedTime = getRememberedMediaPlaybackTime(item.src);
+                          const rememberedTime =
+                            Number.isFinite(initialPlaybackTime) && initialPlaybackTime > 0
+                              ? initialPlaybackTime
+                              : getRememberedMediaPlaybackTime(item.src);
                           if (!Number.isFinite(rememberedTime) || rememberedTime <= 0) {
                             attemptPlaybackStart();
                             return;

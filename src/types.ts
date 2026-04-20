@@ -61,8 +61,15 @@ export interface PreviewCard {
   type: MediaType;
   thumbnail: string;
   src?: string;
+  disableAutoplay?: boolean;
   accentFrom: string;
   accentTo: string;
+}
+
+export interface MediaPreviewDialogSelection {
+  item: PreviewCard;
+  initialPlaybackTime?: number;
+  handoffPoster?: string;
 }
 
 export interface GroupProofItem {

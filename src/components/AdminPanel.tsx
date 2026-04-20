@@ -424,6 +424,18 @@ function getModelContentCounts(model: ModelProfile) {
   };
 }
 
+function getTaskErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof Error) {
+    const normalizedMessage = error.message.trim();
+
+    if (normalizedMessage) {
+      return normalizedMessage;
+    }
+  }
+
+  return fallbackMessage;
+}
+
 function buttonClassName() {
   return 'inline-flex min-h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-rose-600 to-violet-600 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60';
 }
@@ -2598,8 +2610,10 @@ export function AdminPanel({
       onSuccess?.();
       setFeedback(successMessage);
       setOpenSections((current) => ({ ...current, models: true }));
-    } catch {
-      setFeedback('Nao foi possivel salvar o conteudo agora.');
+    } catch (error) {
+      setFeedback(
+        getTaskErrorMessage(error, 'Nao foi possivel salvar o conteudo agora.'),
+      );
     } finally {
       setActiveTask(null);
       clearTaskProgress();
@@ -2676,8 +2690,10 @@ export function AdminPanel({
         [model.id]: null,
       }));
       setFeedback('Video exclusivo salvo. O link da pagina ja esta pronto no painel.');
-    } catch {
-      setFeedback('Nao foi possivel salvar o video exclusivo agora.');
+    } catch (error) {
+      setFeedback(
+        getTaskErrorMessage(error, 'Nao foi possivel salvar o video exclusivo agora.'),
+      );
     } finally {
       setActiveTask(null);
       clearTaskProgress();

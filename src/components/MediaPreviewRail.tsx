@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useLayoutEffect, useRef, useState, type WheelEventHandler } from 'react';
-import type { PreviewCard } from '../types';
+import type { MediaPreviewDialogSelection, PreviewCard } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { ChevronLeftIcon, ChevronRightIcon } from './icons';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
@@ -24,7 +24,7 @@ export function MediaPreviewRail({
   variant = 'wide',
 }: MediaPreviewRailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedItem, setSelectedItem] = useState<PreviewCard | null>(null);
+  const [selectedItem, setSelectedItem] = useState<MediaPreviewDialogSelection | null>(null);
   const usePortraitCards =
     variant === 'portrait' || items.some((item) => item.type === 'video');
 
@@ -142,6 +142,48 @@ export function MediaPreviewRail({
     container.scrollLeft += event.deltaY;
   };
 
+  const buildDialogSelection = (
+    item: PreviewCard,
+    element: HTMLElement,
+  ): MediaPreviewDialogSelection => {
+    if (item.type !== 'video') {
+      return { item };
+    }
+
+    const video = element.querySelector('video');
+
+    if (!video) {
+      return { item };
+    }
+
+    let handoffPoster = '';
+
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+
+        if (context) {
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          handoffPoster = canvas.toDataURL('image/jpeg', 0.76);
+        }
+      } catch {
+        handoffPoster = '';
+      }
+    }
+
+    return {
+      item,
+      initialPlaybackTime:
+        Number.isFinite(video.currentTime) && video.currentTime > 0
+          ? video.currentTime
+          : undefined,
+      handoffPoster: handoffPoster || undefined,
+    };
+  };
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 24 }}
@@ -169,11 +211,13 @@ export function MediaPreviewRail({
                 <article key={item.id} data-showcase-card className={cardClassName}>
                   <div
                     className={aspectClassName}
-                    onClick={() => setSelectedItem(item)}
+                    onClick={(event) =>
+                      setSelectedItem(buildDialogSelection(item, event.currentTarget))
+                    }
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        setSelectedItem(item);
+                        setSelectedItem(buildDialogSelection(item, event.currentTarget));
                       }
                     }}
                     tabIndex={0}
@@ -223,7 +267,7 @@ export function MediaPreviewRail({
         </div>
       )}
 
-      <MediaPreviewDialog item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <MediaPreviewDialog selection={selectedItem} onClose={() => setSelectedItem(null)} />
     </motion.section>
   );
 }

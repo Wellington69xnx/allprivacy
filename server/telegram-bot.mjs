@@ -8,6 +8,8 @@ const telegramPhotoUploadLimitBytes = 10 * 1024 * 1024;
 const telegramOtherUploadLimitBytes = 50 * 1024 * 1024;
 const paymentConversationStepEmail = 'awaiting-email';
 const paymentConversationStepCpf = 'awaiting-cpf';
+const xvideosRedDownloadDescription =
+  'Baixe vídeos do Xvideos Red usando nosso bot.\nMembros do Grupo VIP recebem 5 créditos gratuitos todos os dias, e novos usuários começam com 2 créditos grátis.';
 
 function toText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -86,6 +88,35 @@ function buildModelUrl(siteUrl, model) {
 
 function buildHomeUrl(siteUrl) {
   return normalizeBaseUrl(siteUrl) || 'http://localhost:5173';
+}
+
+function buildDownloadBotButton() {
+  return {
+    text: '🔞 DOWNLOAD XVIDEOSRED',
+    url: 'https://t.me/xv_download_bot',
+  };
+}
+
+function addDownloadBotButtonBeforeSite(rows) {
+  const hasDownloadButton = rows.some((row) =>
+    row.some((button) => button?.url === 'https://t.me/xv_download_bot'),
+  );
+
+  if (hasDownloadButton) {
+    return rows;
+  }
+
+  const siteRowIndex = rows.findIndex((row) =>
+    row.some((button) => toText(button?.text).toLowerCase().includes('abrir site')),
+  );
+
+  if (siteRowIndex === -1) {
+    return rows;
+  }
+
+  const nextRows = [...rows];
+  nextRows.splice(siteRowIndex, 0, [buildDownloadBotButton()]);
+  return nextRows;
 }
 
 function buildGroupUrl(groupUrl, siteUrl) {
@@ -173,7 +204,7 @@ function splitModelsIntoRows(models, siteUrl) {
     },
   ]);
 
-  return rows;
+  return addDownloadBotButtonBeforeSite(rows);
 }
 
 function buildModelCaption(model) {
@@ -582,7 +613,7 @@ function buildStartKeyboard(
   rows.push([{ text: '🌐 Abrir site', url: buildHomeUrl(options.siteUrl) }]);
 
   return {
-    inline_keyboard: rows,
+    inline_keyboard: addDownloadBotButtonBeforeSite(rows),
   };
 }
 
@@ -633,20 +664,33 @@ function buildAccessKeyboard(subscription, siteUrl) {
   rows.push([{ text: '🌐 Abrir site', url: buildHomeUrl(siteUrl) }]);
 
   return {
-    inline_keyboard: rows,
+    inline_keyboard: addDownloadBotButtonBeforeSite(rows),
   };
 }
 
 function buildSiteKeyboard(siteUrl) {
+  const rows = [[{ text: '🌐 Abrir site', url: buildHomeUrl(siteUrl) }]];
   return {
-    inline_keyboard: [[{ text: '🌐 Abrir site', url: buildHomeUrl(siteUrl) }]],
+    inline_keyboard: addDownloadBotButtonBeforeSite(rows),
+  };
+}
+
+function buildSupportKeyboard() {
+  return {
+    inline_keyboard: [[{ text: '🆘 Suporte', url: 'https://t.me/suporte_allprivacy' }]],
+  };
+}
+
+function buildManagedSiteKeyboard(siteUrl) {
+  return {
+    inline_keyboard: [[{ text: '🌐 Acessar o site', url: buildHomeUrl(siteUrl) }]],
   };
 }
 
 const telegramBotCommands = [
   { command: 'start', description: '🚀 Iniciar' },
-  { command: 'suporte', description: '🆘 Suporte' },
   { command: 'assinatura', description: '🔓 Meu Acesso' },
+  { command: 'suporte', description: '🆘 Suporte' },
   { command: 'site', description: '🌐 Acessar Site' },
 ];
 
@@ -3888,7 +3932,7 @@ async function sendSitewidePreviews(token, chatId, siteContent, options) {
 }
 
 function getPreviewUpsellText() {
-  return '🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n ⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>';
+  return `🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n⬇️🔞<b>Download XVideosRED:</b> <i>${xvideosRedDownloadDescription}</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>`;
 }
 
 async function sendManagedPreviewUpsellMessage(
@@ -3922,7 +3966,7 @@ async function sendManagedPreviewUpsellMessage(
 function getPreviewUpsellTextV2(showSiteMessage = false) {
   const siteMessage = showSiteMessage ? '\n\n🌐 Acesse o site para mais prévias.' : '';
 
-  return `🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>${siteMessage}`;
+  return `🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n⬇️🔞<b>Download XVideosRED:</b> <i>${xvideosRedDownloadDescription}</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>${siteMessage}`;
 }
 
 async function sendManagedPreviewUpsellMessageV2(
@@ -3949,6 +3993,100 @@ async function sendManagedPreviewUpsellMessageV2(
 
   await options.billingStore.upsertCustomer(chatId, {
     previewUpsellMessageId: nextMessageId,
+  });
+
+  return nextMessage;
+}
+
+async function clearManagedSupportMessage(token, chatId, options) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.supportMessageId || 0) || null;
+
+  if (!previousMessageId) {
+    return;
+  }
+
+  try {
+    await deleteMessage(token, chatId, previousMessageId);
+  } catch {
+    // Ignora falha ao limpar a mensagem anterior de suporte.
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    supportMessageId: null,
+  });
+}
+
+async function sendManagedSupportMessage(token, chatId, options) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.supportMessageId || 0) || null;
+  const nextMessage = await sendText(
+    token,
+    chatId,
+    '<b>🆘 Suporte AllPrivacy</b>\n\nSe tiver qualquer problema com algum de nossos serviços, entre em contato com o suporte.',
+    {
+      reply_markup: buildSupportKeyboard(),
+    },
+  );
+  const nextMessageId = Number(nextMessage?.message_id || 0) || null;
+
+  if (previousMessageId && (!nextMessageId || previousMessageId !== nextMessageId)) {
+    try {
+      await deleteMessage(token, chatId, previousMessageId);
+    } catch {
+      // Ignora falha ao limpar a mensagem anterior de suporte.
+    }
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    supportMessageId: nextMessageId,
+  });
+
+  return nextMessage;
+}
+
+async function clearManagedSiteMessage(token, chatId, options) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.siteMessageId || 0) || null;
+
+  if (!previousMessageId) {
+    return;
+  }
+
+  try {
+    await deleteMessage(token, chatId, previousMessageId);
+  } catch {
+    // Ignora falha ao limpar a mensagem anterior do site.
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    siteMessageId: null,
+  });
+}
+
+async function sendManagedSiteMessage(token, chatId, options) {
+  const currentCustomer = (await options.billingStore.getCustomer(chatId)) || {};
+  const previousMessageId = Number(currentCustomer.siteMessageId || 0) || null;
+  const nextMessage = await sendText(
+    token,
+    chatId,
+    '<b>🌐 Site AllPrivacy</b>\n\nAcesse e salve nosso site para ficar sempre por dentro das novidades e atualizações.',
+    {
+      reply_markup: buildManagedSiteKeyboard(options.siteUrl),
+    },
+  );
+  const nextMessageId = Number(nextMessage?.message_id || 0) || null;
+
+  if (previousMessageId && (!nextMessageId || previousMessageId !== nextMessageId)) {
+    try {
+      await deleteMessage(token, chatId, previousMessageId);
+    } catch {
+      // Ignora falha ao limpar a mensagem anterior do site.
+    }
+  }
+
+  await options.billingStore.upsertCustomer(chatId, {
+    siteMessageId: nextMessageId,
   });
 
   return nextMessage;
@@ -4012,6 +4150,14 @@ async function handleMessage(token, message, readSiteContent, options) {
     command: normalizedCommand,
     payload: startPayload,
   });
+
+  if (normalizedCommand !== '/suporte') {
+    await clearManagedSupportMessage(token, chatId, options);
+  }
+
+  if (normalizedCommand !== '/site') {
+    await clearManagedSiteMessage(token, chatId, options);
+  }
 
   if (normalizedCommand === '/start') {
     const { planId: requestedPlanId, target: requestedTarget } = parseStartPayload(
@@ -4125,30 +4271,11 @@ async function handleMessage(token, message, readSiteContent, options) {
   }
 
   if (normalizedCommand === '/site') {
-    return sendText(
-      token,
-      chatId,
-      '🌐 *AllPrivacy*\n\nAcesse o site oficial para ver mais prévias e conhecer as modelos.',
-      {
-        reply_markup: buildSiteKeyboard(options.siteUrl),
-      },
-    );
+    return sendManagedSiteMessage(token, chatId, options);
   }
 
   if (normalizedCommand === '/suporte') {
-    const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
-    const supportText = activeSubscription
-      ? '🆘 *Suporte*\n\nSe tiver problema para entrar no grupo, toque em *Meu acesso* ou use /assinatura para consultar sua validade atual.'
-      : '🆘 *Suporte*\n\nSe o pagamento ainda não apareceu, toque em *Já paguei, verificar* no Pix gerado.\n\nSe precisar de mais prévias ou informações, use /site.';
-
-    return sendText(
-      token,
-      chatId,
-      supportText,
-      {
-        reply_markup: await buildStartKeyboardForChat(chatId, options),
-      },
-    );
+    return sendManagedSupportMessage(token, chatId, options);
   }
 
   if (normalizedCommand === '/grupo') {
@@ -4300,22 +4427,6 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     }
 
     await sendManagedPreviewUpsellMessage(token, chatId, options, 'Ver mais prévias');
-    return null;
-
-    const previewUpsellText =
-      '🔓 <b>Tenha acesso completo e imediato entrando em nosso grupo VIP.</b>\n\n<i>💎 Privacy, OnlyFans, XvideosRED, CloseFans, TelegramVIP\n💎 Cornos/Hotwife\n💎 Culckold\n💎 Boquetes Babado\n💎 AmadorVIP\n💎 Sexo em Público\n💎 Famosinhas Vazadas\n💎 Câmeras Escondidas\n💎 Atualizações Diárias\n💎 Todo conteúdo separado por tópicos</i>\n\n ⬇️🔞<b>Download XVideosRED:</b> <i>Em breve membros de nosso GrupoVIP podera fazer downloads de videos do XvideoRED com nosso gerador premium de download)</i>\n\n🚀 Escolha seu plano abaixo e tenha acesso imediato a <b>TUDO EM UM SÓ LUGAR!</b>';
-
-    if (!previewResult.usage.canUse) {
-      await sendText(token, chatId, previewUpsellText);
-      return sendPlainText(token, chatId, '🌐 Acesse o site para mais prévias.', {
-        reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais prévias'),
-      });
-    }
-
-    await sendText(token, chatId, previewUpsellText, {
-      reply_markup: await buildStartKeyboardForChat(chatId, options, 'Ver mais prévias'),
-    });
-
     return null;
   }
 
