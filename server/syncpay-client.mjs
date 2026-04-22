@@ -136,8 +136,24 @@ async function syncPayRequest({
   }
 }
 
+function firstTextCandidate(candidates) {
+  return candidates.map((candidate) => toText(candidate)).find(Boolean) || '';
+}
+
+function isPixCopyPastePayload(value) {
+  const normalized = toText(value);
+  return normalized.startsWith('000201') && normalized.toLowerCase().includes('br.gov.bcb.pix');
+}
+
+function firstPixCopyPasteCandidate(candidates) {
+  const textCandidates = candidates.map((candidate) => toText(candidate)).filter(Boolean);
+  return textCandidates.find(isPixCopyPastePayload) || '';
+}
+
 function normalizeSyncPayPaymentResponse(payload) {
   const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  const charge = data?.payment?.charges?.[0] || data?.charges?.[0] || {};
+  const pix = data?.pix && typeof data.pix === 'object' ? data.pix : {};
   const amountValue = Number(data?.amount ?? data?.valor ?? data?.valor_bruto ?? 0);
 
   return {
@@ -149,14 +165,39 @@ function normalizeSyncPayPaymentResponse(payload) {
         data?.id_transaction ??
         data?.id,
     ),
-    paymentCode: toText(
-      data?.pix_code ??
-        data?.paymentCode ??
-        data?.paymentcode ??
-        data?.pixCopiaECola ??
-        data?.pix,
-    ),
-    paymentCodeBase64: toText(data?.paymentCodeBase64 ?? data?.qrcodeBase64),
+    paymentCode: firstPixCopyPasteCandidate([
+      data?.pix_code,
+      data?.paymentCode,
+      data?.paymentcode,
+      data?.pixCopiaECola,
+      data?.pixCopyPaste,
+      data?.copyPaste,
+      data?.copy_paste,
+      data?.brCode,
+      data?.brcode,
+      data?.emv,
+      data?.qrCode,
+      data?.qrcode,
+      data?.qr_code,
+      pix?.copyPaste,
+      pix?.copy_paste,
+      pix?.code,
+      pix?.payload,
+      pix?.qrCode,
+      pix?.qrcode,
+      charge?.pixPayload,
+      charge?.pix_payload,
+    ]),
+    paymentCodeBase64: firstTextCandidate([
+      data?.paymentCodeBase64,
+      data?.qrcodeBase64,
+      data?.qrCodeBase64,
+      data?.qr_code_base64,
+      pix?.qrcodeBase64,
+      pix?.qrCodeBase64,
+      charge?.pixQrCode,
+      charge?.pix_qr_code,
+    ]),
     paymentLink: toText(data?.paymentLink ?? data?.link),
     dueAt: toText(data?.dateDue ?? data?.date_due ?? data?.dueDate ?? data?.data_registro),
     status:
@@ -298,8 +339,16 @@ export function createSyncPayClient({
         ? compactObject({
             amount: normalizedAmount,
             description: toText(itemDescription) || toText(itemTitle) || 'Acesso VIP Telegram',
-            webhook_url: toText(postbackUrl),
-            client: normalizedClient,
+            metadata:
+              typeof metadata === 'object' && metadata !== null
+                ? compactObject({
+                    ...metadata,
+                    external_reference: toText(externalReference),
+                  })
+                : compactObject({
+                    external_reference: toText(externalReference),
+                    metadata: toText(metadata),
+                  }),
           })
         : compactObject({
             ip: '127.0.0.1',

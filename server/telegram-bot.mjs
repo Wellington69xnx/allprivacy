@@ -8,6 +8,7 @@ const telegramPhotoUploadLimitBytes = 10 * 1024 * 1024;
 const telegramOtherUploadLimitBytes = 50 * 1024 * 1024;
 const paymentConversationStepEmail = 'awaiting-email';
 const paymentConversationStepCpf = 'awaiting-cpf';
+const publicSiteUrl = 'https://allprivacy.site';
 const xvideosRedDownloadDescription =
   'Baixe vídeos do Xvideos Red usando nosso bot.\nMembros do Grupo VIP recebem 5 créditos gratuitos todos os dias, e novos usuários começam com 2 créditos grátis.';
 
@@ -87,7 +88,23 @@ function buildModelUrl(siteUrl, model) {
 }
 
 function buildHomeUrl(siteUrl) {
-  return normalizeBaseUrl(siteUrl) || 'http://localhost:5173';
+  const normalizedSiteUrl = normalizeBaseUrl(siteUrl);
+
+  if (!normalizedSiteUrl) {
+    return publicSiteUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedSiteUrl);
+
+    if (isPrivateHostname(parsedUrl.hostname)) {
+      return publicSiteUrl;
+    }
+  } catch {
+    return publicSiteUrl;
+  }
+
+  return normalizedSiteUrl;
 }
 
 function buildDownloadBotButton() {
@@ -278,8 +295,70 @@ function getPaymentPlan(options, planId) {
   );
 }
 
+function getDurationMsFromPlanLabel(value) {
+  const normalized = toText(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const match = normalized.match(/(\d+(?:[.,]\d+)?)/);
+
+  if (!match) {
+    return 0;
+  }
+
+  const amount = Number(match[1].replace(',', '.'));
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 0;
+  }
+
+  if (normalized.includes('min')) {
+    return Math.round(amount * 60 * 1000);
+  }
+
+  if (normalized.includes('hora')) {
+    return Math.round(amount * 60 * 60 * 1000);
+  }
+
+  if (normalized.includes('dia')) {
+    return Math.round(amount * 24 * 60 * 60 * 1000);
+  }
+
+  if (normalized.includes('mes')) {
+    return Math.round(amount * 30 * 24 * 60 * 60 * 1000);
+  }
+
+  if (normalized.includes('ano')) {
+    return Math.round(amount * 365 * 24 * 60 * 60 * 1000);
+  }
+
+  return 0;
+}
+
 function getPaymentPlanForPayment(payment, options) {
-  return getPaymentPlan(options, payment?.planId);
+  const normalizedPlanId = normalizePlanId(payment?.planId);
+  const configuredPlan = getPaymentPlans(options).find(
+    (plan) => normalizePlanId(plan.id) === normalizedPlanId,
+  );
+
+  if (configuredPlan) {
+    return configuredPlan;
+  }
+
+  if (payment && normalizedPlanId) {
+    return {
+      id: normalizedPlanId,
+      name: toText(payment.planName) || 'Plano VIP',
+      durationLabel: toText(payment.planDurationLabel),
+      displayAmount: Number(payment.displayAmount || payment.amount || 0),
+      chargeAmount: Number(payment.amount || payment.displayAmount || 0),
+      durationMs:
+        getDurationMsFromPlanLabel(payment.planDurationLabel || payment.planName) ||
+        Number(options?.paymentConfig?.durationMs || 30_000),
+    };
+  }
+
+  return getDefaultPaymentPlan(options);
 }
 
 function isFakePixPayment(payment) {
@@ -288,6 +367,19 @@ function isFakePixPayment(payment) {
       typeof payment.syncpayPayload === 'object' &&
       payment.syncpayPayload.fakePix === true,
   );
+}
+
+function isFakePixCode(value) {
+  return toText(value).toUpperCase().startsWith('FAKEPIX|');
+}
+
+function isPixCopyPasteCode(value) {
+  const normalized = toText(value);
+  return normalized.startsWith('000201') && normalized.toLowerCase().includes('br.gov.bcb.pix');
+}
+
+function isTestPixPayment(payment) {
+  return isFakePixPayment(payment) || isFakePixCode(payment?.paymentCode);
 }
 
 function buildFakePixCode(payment, paymentPlan) {
@@ -635,12 +727,16 @@ async function buildStartKeyboardForChat(
 }
 
 function buildPaymentKeyboard(payment, paymentConfig) {
+  const paymentCode = getPaymentCopyPasteCode(payment);
+  const canCopyPixCode = paymentCode && (paymentConfig.fakePixEnabled || !isTestPixPayment(payment));
   const rows = [
           [{ text: '✅ Já paguei, verificar', callback_data: `verify:${payment.id}` }],
     ...(paymentConfig.simulationEnabled
       ? [[{ text: '🧪 Simular pagamento', callback_data: `simulate-pay:${payment.id}` }]]
       : []),
-    [{ text: '📋 Copiar PIX', callback_data: `copy-pix:${payment.id}` }],
+    ...(canCopyPixCode
+      ? [[{ text: '📋 Copiar PIX', copy_text: { text: paymentCode } }]]
+      : [[{ text: '📋 Copiar PIX', callback_data: `copy-pix:${payment.id}` }]]),
     [{ text: '📷 Ver QRCode', callback_data: `show-qr:${payment.id}` }],
     [{ text: '❌ Cancelar', callback_data: `cancel:${payment.id}` }],
   ];
@@ -1423,6 +1519,7 @@ async function resolveTelegramMediaSource(
   resolveLocalAssetPath,
   telegramFileCache,
   skipCache = false,
+  preferLocal = false,
 ) {
   const normalizedAssetUrl = toText(assetUrl);
 
@@ -1444,6 +1541,15 @@ async function resolveTelegramMediaSource(
     return {
       kind: 'file-id',
       value: cachedFileId,
+      assetUrl: normalizedAssetUrl,
+    };
+  }
+
+  if (preferLocal && localAssetPath && (await pathExists(localAssetPath))) {
+    return {
+      kind: 'local',
+      filePath: localAssetPath,
+      filename: path.basename(localAssetPath),
       assetUrl: normalizedAssetUrl,
     };
   }
@@ -1669,6 +1775,7 @@ async function buildPreviewMediaSources(items, options) {
         options.resolveLocalAssetPath,
         options.telegramFileCache,
         false,
+        true,
       );
 
       if (!mediaSource) {
@@ -1867,53 +1974,17 @@ async function sendPreviewMediaSelection(
         mediaRetryOptions,
       );
     } catch (error) {
-      logBot('Falha ao enviar media group de prévias. Tentando fallback individual.', {
+      logBot('Falha ao enviar media group de prévias. Sem fallback individual para evitar mídias soltas.', {
         chatId,
         totalMidias: mediaSources.length,
         error: error instanceof Error ? error.message : String(error),
       });
 
-      const fallbackResults = [];
-
-      for (const mediaItem of mediaSources) {
-        try {
-          const message =
-            mediaItem.type === 'video'
-              ? await sendVideo(
-                  token,
-                  chatId,
-                  mediaItem.media,
-                  '',
-                  {},
-                  options.telegramFileCache,
-                  mediaRetryOptions,
-                )
-              : await sendPhoto(
-                  token,
-                  chatId,
-                  mediaItem.media,
-                  '',
-                  {},
-                  options.telegramFileCache,
-                  mediaRetryOptions,
-                );
-
-          fallbackResults.push(message);
-        } catch (itemError) {
-          logBot('Prévia ignorada após falha individual.', {
-            chatId,
-            mediaType: mediaItem.type,
-            assetUrl: mediaItem.media?.assetUrl || '',
-            error: itemError instanceof Error ? itemError.message : String(itemError),
-          });
-        }
-      }
-
-      if (fallbackResults.length > 0) {
-        return fallbackResults;
-      }
-
-      throw error;
+      return sendPlainText(
+        token,
+        chatId,
+        'Não consegui enviar as prévias agrupadas agora. Tente novamente em instantes.',
+      );
     }
   } finally {
     await loadingController.stop();
@@ -2478,11 +2549,14 @@ async function sendActiveSubscriptionMessage(token, chatId, subscription, option
     : subscription.planDurationLabel
       ? `💎 Plano: ${subscription.planDurationLabel}\n`
       : '';
+  const expiresText = formatDateTimeBR(subscription.expiresAt);
+  const expiresLine = expiresText ? `⏰ Valido ate: ${expiresText}\n` : '';
+  const accessUntilText = expiresText ? ` ate *${expiresText}*` : '';
 
   return sendText(
     token,
     chatId,
-    `🔓 *Meu acesso*\n\n${planLine}${modelLine}✅ Seu acesso ao grupo privado esta liberado.\n\n👇 Use o botao abaixo para entrar no grupo privado.`,
+    `🔓 *Meu acesso*\n\n${planLine}${modelLine}${expiresLine}✅ Voce ja esta participando do grupo VIP${accessUntilText}.\n\n⚙️ Para gerenciar, use /assinatura ou o botao *Meu acesso*.\n\n👇 Use o botao abaixo para entrar no grupo privado.`,
     {
       reply_markup: buildAccessKeyboard(subscription, options.siteUrl),
     },
@@ -2527,6 +2601,20 @@ async function sendPaymentIntroVideo(token, chatId, payment, options) {
 }
 
 async function createPaymentQrBuffer(paymentCode) {
+  try {
+    const response = await fetch(
+      `https://quickchart.io/qr?size=320&text=${encodeURIComponent(paymentCode)}`,
+    );
+
+    if (response.ok) {
+      return Buffer.from(await response.arrayBuffer());
+    }
+  } catch (error) {
+    logBot('Falha ao gerar QRCode via QuickChart; usando fallback local.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return QRCode.toBuffer(paymentCode, {
     errorCorrectionLevel: 'M',
     margin: 1,
@@ -2546,7 +2634,8 @@ function decodePixCodeFromBase64(paymentCodeBase64) {
   }
 
   try {
-    return Buffer.from(normalized, 'base64').toString('utf8').trim();
+    const decoded = Buffer.from(normalized, 'base64').toString('utf8').trim();
+    return isPixCopyPasteCode(decoded) || isFakePixCode(decoded) ? decoded : '';
   } catch {
     return '';
   }
@@ -2561,20 +2650,32 @@ function decodeQrImageBuffer(paymentCodeBase64) {
 
   try {
     const buffer = Buffer.from(normalized, 'base64');
-    return buffer.length > 0 ? buffer : null;
+    const isPng = buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const isJpeg = buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    return isPng || isJpeg ? buffer : null;
   } catch {
     return null;
   }
 }
 
+function getPaymentCopyPasteCode(payment) {
+  const directCode = toText(payment?.paymentCode);
+
+  if (isPixCopyPasteCode(directCode) || isFakePixCode(directCode)) {
+    return directCode;
+  }
+
+  return decodePixCodeFromBase64(payment?.paymentCodeBase64);
+}
+
 async function sendPixInstructions(token, chatId, payment, options) {
-  const paymentCode =
-    toText(payment.paymentCode) || decodePixCodeFromBase64(payment.paymentCodeBase64);
+  const paymentCode = getPaymentCopyPasteCode(payment);
   const dueText = payment.pixExpiresAt
     ? formatDateTimeBR(payment.pixExpiresAt)
     : payment.dueAt
       ? formatDateTimeBR(payment.dueAt)
       : '';
+  const isLegacyTestPix = isTestPixPayment(payment) && !options.paymentConfig.fakePixEnabled;
   const sentMessageIds = [];
 
   try {
@@ -2599,8 +2700,12 @@ async function sendPixInstructions(token, chatId, payment, options) {
     chatId,
     [
       '<b>💳 PIX Gerado</b>',
-      paymentCode ? `<code>${escapeHtml(paymentCode)}</code>` : '',
+      paymentCode ? '<b>Copie e cole no banco:</b>' : '',
+      paymentCode ? `<i>${escapeHtml(paymentCode)}</i>` : '',
       dueText ? `<b>⏰ Validade:</b> ${escapeHtml(dueText)}` : '',
+      isLegacyTestPix
+        ? '<b>⚠️ Este Pix foi gerado em modo teste. Gere um novo Pix real antes de pagar.</b>'
+        : '',
       !paymentCode ? 'A Syncpay não retornou o código Pix.' : '',
     ]
       .filter(Boolean)
@@ -2691,8 +2796,7 @@ async function sendPaymentCopyCode(token, chatId, paymentId, options, callbackId
     return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
-  const paymentCode =
-    toText(payment.paymentCode) || decodePixCodeFromBase64(payment.paymentCodeBase64);
+  const paymentCode = getPaymentCopyPasteCode(payment);
 
   if (!paymentCode) {
     if (callbackId) {
@@ -2705,21 +2809,23 @@ async function sendPaymentCopyCode(token, chatId, paymentId, options, callbackId
     return sendPlainText(token, chatId, 'Esse Pix não tem código copia e cola disponível agora.');
   }
 
+  if (isTestPixPayment(payment) && !options.paymentConfig.fakePixEnabled) {
+    if (callbackId) {
+      await answerCallbackQuery(token, callbackId, 'Esse Pix antigo foi gerado em modo teste. Gere um novo Pix real.', {
+        show_alert: true,
+      });
+    }
+
+    return null;
+  }
+
   if (callbackId) {
-    await answerCallbackQuery(token, callbackId, '✅ Chave PIX copiada.');
+    await answerCallbackQuery(token, callbackId, 'Abra um Pix novo para usar o botão que copia automaticamente.', {
+      show_alert: true,
+    });
   }
 
-  const copyMessage = await sendPlainText(
-    token,
-    chatId,
-    '✅ Chave PIX copiada.',
-  );
-
-  if (Number.isInteger(copyMessage?.message_id)) {
-    await appendPaymentMessageIds(options.billingStore, payment, [copyMessage.message_id]);
-  }
-
-  return copyMessage;
+  return null;
 }
 
 async function sendPaymentQrCode(token, chatId, paymentId, options, callbackId = '') {
@@ -2736,10 +2842,20 @@ async function sendPaymentQrCode(token, chatId, paymentId, options, callbackId =
     return sendPlainText(token, chatId, 'Não encontrei esse pagamento para o seu chat.');
   }
 
-  const paymentCode =
-    toText(payment.paymentCode) || decodePixCodeFromBase64(payment.paymentCodeBase64);
+  const paymentCode = getPaymentCopyPasteCode(payment);
+  const providerQrImageBuffer = decodeQrImageBuffer(payment.paymentCodeBase64);
 
-  if (!paymentCode) {
+  if (isTestPixPayment(payment) && !options.paymentConfig.fakePixEnabled) {
+    if (callbackId) {
+      await answerCallbackQuery(token, callbackId, 'Esse Pix antigo foi gerado em modo teste. Gere um novo Pix real.', {
+        show_alert: true,
+      });
+    }
+
+    return sendPlainText(token, chatId, 'Esse Pix antigo foi gerado em modo teste. Gere um novo Pix real pelo menu.');
+  }
+
+  if (!paymentCode && !providerQrImageBuffer) {
     if (callbackId) {
       await answerCallbackQuery(token, callbackId, 'Esse Pix não tem QRCode disponível.', {
         show_alert: true,
@@ -2754,7 +2870,7 @@ async function sendPaymentQrCode(token, chatId, paymentId, options, callbackId =
     await answerCallbackQuery(token, callbackId, 'Abrindo QRCode...');
   }
 
-  const qrImageBuffer = await createPaymentQrBuffer(paymentCode);
+  const qrImageBuffer = providerQrImageBuffer || (await createPaymentQrBuffer(paymentCode));
   const expiryText = payment.pixExpiresAt
     ? formatDateTimeBR(payment.pixExpiresAt)
     : payment.dueAt
@@ -3023,7 +3139,14 @@ async function finalizeApprovedPayment(token, payment, options, origin) {
   return currentPayment;
 }
 
-async function cancelPendingPayment(token, chatId, paymentId, options, callbackId = '') {
+async function cancelPendingPayment(
+  token,
+  chatId,
+  paymentId,
+  options,
+  callbackId = '',
+  siteContent = null,
+) {
   const payment = await options.billingStore.getPayment(paymentId);
 
   if (!payment || payment.chatId !== String(chatId)) {
@@ -3039,13 +3162,12 @@ async function cancelPendingPayment(token, chatId, paymentId, options, callbackI
     payment.id,
     ['draft', 'pending', 'created', 'waiting_payment'],
     {
-      status: 'cancelled',
       syncpayPayload: {
         ...(payment.syncpayPayload && typeof payment.syncpayPayload === 'object'
           ? payment.syncpayPayload
           : {}),
-        cancelledAt: new Date().toISOString(),
-        cancelledBy: 'user',
+        dismissedAt: new Date().toISOString(),
+        dismissedBy: 'user',
       },
     },
   );
@@ -3063,17 +3185,14 @@ async function cancelPendingPayment(token, chatId, paymentId, options, callbackI
   await deletePaymentMessages(token, nextPayment, options);
 
   if (callbackId) {
-    await answerCallbackQuery(token, callbackId, 'Pix cancelado.');
+    await answerCallbackQuery(token, callbackId, 'Voltando ao início...');
   }
 
-  return sendPlainText(
-    token,
-    chatId,
-    '❌ Pix cancelado.\n\nQuando quiser, gere uma nova cobranca.',
-    {
-      reply_markup: await buildStartKeyboardForChat(chatId, options),
-    },
-  );
+  if (siteContent) {
+    return sendStartHomeExperience(token, chatId, siteContent, options);
+  }
+
+  return sendManagedPreviewUpsellMessageV2(token, chatId, options);
 }
 
 async function settlePaymentFromWebhookPayload(token, payment, payload, options, origin) {
@@ -3106,6 +3225,17 @@ async function settlePaymentFromWebhookPayload(token, payment, payload, options,
   const paymentStatus = toText(
     payload?.status ?? payload?.situacao ?? payload?.state ?? payload?.payment?.status,
   );
+  const previousSyncpayPayload =
+    payment.syncpayPayload && typeof payment.syncpayPayload === 'object'
+      ? payment.syncpayPayload
+      : {};
+  const nextSyncpayPayload =
+    payload && typeof payload === 'object'
+      ? {
+          ...previousSyncpayPayload,
+          ...payload,
+        }
+      : previousSyncpayPayload;
 
   let nextPayment =
     (await options.billingStore.updatePayment(payment.id, {
@@ -3115,7 +3245,7 @@ async function settlePaymentFromWebhookPayload(token, payment, payload, options,
       paymentCodeBase64: paymentCodeBase64 || payment.paymentCodeBase64,
       paymentLink: paymentLink || payment.paymentLink,
       dueAt: dueAt || payment.dueAt,
-      syncpayPayload: payload,
+      syncpayPayload: nextSyncpayPayload,
       paidAt:
         isSyncPayPaidStatus(paymentStatus) && !payment.paidAt
           ? new Date().toISOString()
@@ -3130,7 +3260,8 @@ async function settlePaymentFromWebhookPayload(token, payment, payload, options,
 }
 
 async function resolvePaymentCustomerData(chatId, telegramUser, customer, options) {
-  const configuredCustomer = options.paymentConfig.testCustomer || {};
+  const configuredCustomer =
+    options.paymentConfig.defaultCustomer || options.paymentConfig.testCustomer || {};
 
   return {
     name:
@@ -3161,7 +3292,7 @@ async function createOrReusePixPayment(
     return sendText(
       token,
       chatId,
-      'Os pagamentos por Pix ainda não estão configurados. Defina a API ou ative o modo de teste para liberar este fluxo.',
+      'Os pagamentos por Pix ainda não estão configurados. Verifique as credenciais da SyncPay e tente novamente.',
     );
   }
 
@@ -3181,20 +3312,50 @@ async function createOrReusePixPayment(
   const targetModelSlug = model ? getModelRouteSlug(model) : 'home';
   const targetPlanId = normalizePlanId(selectedPlan.id) || normalizePlanId(options.paymentConfig.defaultPlanId) || '30d';
 
-  if (!forceNew) {
-    const pendingPayment = await options.billingStore.findPendingPayment(
-      chatId,
-      targetModelSlug,
-      targetPlanId,
-    );
+  const pendingPayment = await options.billingStore.findPendingPayment(
+    chatId,
+    targetModelSlug,
+    targetPlanId,
+  );
 
-    if (pendingPayment?.paymentCode) {
-      await deletePaymentMessages(token, pendingPayment, options);
-      return sendPixInstructions(token, chatId, pendingPayment, options);
-    }
+  const pendingPaymentCode = getPaymentCopyPasteCode(pendingPayment);
+  const canReusePendingPayment =
+    pendingPaymentCode &&
+    (options.paymentConfig.fakePixEnabled || !isTestPixPayment(pendingPayment));
+
+  if (canReusePendingPayment) {
+    const reusablePayment =
+      pendingPayment.status === 'cancelled'
+        ? (await options.billingStore.updatePayment(pendingPayment.id, {
+            status: 'pending',
+            syncpayPayload: {
+              ...(pendingPayment.syncpayPayload && typeof pendingPayment.syncpayPayload === 'object'
+                ? pendingPayment.syncpayPayload
+                : {}),
+              reusedAt: new Date().toISOString(),
+              reusedAfterCancel: true,
+            },
+          })) || pendingPayment
+        : pendingPayment;
+
+    logBot('Reutilizando Pix ativo.', {
+      chatId,
+      paymentId: reusablePayment.id,
+      model: reusablePayment.modelName || targetModelSlug || 'home',
+      plan: targetPlanId,
+      forcedRequest: forceNew,
+    });
+
+    await deletePaymentMessages(token, reusablePayment, options);
+    await options.billingStore.clearConversation(chatId);
+    return sendPixInstructions(token, chatId, reusablePayment, options);
   }
 
-  const stalePayments = await options.billingStore.listPendingPaymentsForChat(chatId, targetModelSlug);
+  const stalePayments = await options.billingStore.listPendingPaymentsForChat(
+    chatId,
+    targetModelSlug,
+    targetPlanId,
+  );
 
   for (const stalePayment of stalePayments) {
     await options.billingStore.updatePayment(stalePayment.id, {
@@ -3650,6 +3811,8 @@ async function autoVerifyPendingPayments(token, options) {
   }
 }
 
+const pendingPaymentReminderLocks = new Set();
+
 async function sendPendingPaymentReminders(token, options) {
   if (!options.paymentConfig.enabled || options.paymentConfig.pixReminderMs <= 0) {
     return;
@@ -3657,8 +3820,26 @@ async function sendPendingPaymentReminders(token, options) {
 
   const pendingPayments = await options.billingStore.listPendingPayments();
   const now = Date.now();
+  const remindedChats = new Set();
+  const chatsWithReminderSent = new Set(
+    pendingPayments
+      .filter((payment) => toText(payment?.syncpayPayload?.paymentReminderSentAt))
+      .map((payment) => String(payment.chatId || ''))
+      .filter(Boolean),
+  );
 
   for (const payment of pendingPayments) {
+    const chatId = String(payment.chatId || '');
+
+    if (
+      !chatId ||
+      remindedChats.has(chatId) ||
+      chatsWithReminderSent.has(chatId) ||
+      pendingPaymentReminderLocks.has(chatId)
+    ) {
+      continue;
+    }
+
     const reminderSentAt = toText(payment?.syncpayPayload?.paymentReminderSentAt);
 
     if (reminderSentAt) {
@@ -3680,22 +3861,41 @@ async function sendPendingPaymentReminders(token, options) {
       continue;
     }
 
-    try {
-      const reminderMessage = await sendHtmlText(
-        token,
-        payment.chatId,
-        buildPendingPaymentReminderText(payment, options),
-      );
+    const customer = await options.billingStore.getCustomer(chatId);
+    const customerReminderSentAt = Date.parse(toText(customer?.pixReminderLastSentAt));
+    const reminderCooldownMs = Number(options.paymentConfig.pixReminderCooldownMs || 0);
 
+    if (
+      reminderCooldownMs > 0 &&
+      Number.isFinite(customerReminderSentAt) &&
+      customerReminderSentAt + reminderCooldownMs > now
+    ) {
+      continue;
+    }
+
+    pendingPaymentReminderLocks.add(chatId);
+    remindedChats.add(chatId);
+
+    try {
+      const reminderSentAtIso = new Date().toISOString();
       let nextPayment =
         (await options.billingStore.updatePayment(payment.id, {
           syncpayPayload: {
             ...(payment.syncpayPayload && typeof payment.syncpayPayload === 'object'
               ? payment.syncpayPayload
               : {}),
-            paymentReminderSentAt: new Date().toISOString(),
+            paymentReminderSentAt: reminderSentAtIso,
           },
         })) || payment;
+      await options.billingStore.upsertCustomer(chatId, {
+        pixReminderLastSentAt: reminderSentAtIso,
+      });
+
+      const reminderMessage = await sendHtmlText(
+        token,
+        chatId,
+        buildPendingPaymentReminderText(payment, options),
+      );
 
       if (Number.isInteger(reminderMessage?.message_id)) {
         nextPayment =
@@ -3708,9 +3908,11 @@ async function sendPendingPaymentReminders(token, options) {
     } catch (error) {
       logBot('Falha ao enviar lembrete automatico do Pix.', {
         paymentId: payment.id,
-        chatId: payment.chatId,
+        chatId,
         error: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      pendingPaymentReminderLocks.delete(chatId);
     }
   }
 }
@@ -4117,6 +4319,17 @@ async function sendFavoriteStartPreviews(token, chatId, siteContent, options) {
   return null;
 }
 
+async function sendStartHomeExperience(token, chatId, siteContent, options) {
+  const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
+
+  if (activeSubscription) {
+    return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
+  }
+
+  await sendFavoriteStartPreviews(token, chatId, siteContent, options);
+  return sendManagedPreviewUpsellMessageV2(token, chatId, options);
+}
+
 async function handleMessage(token, message, readSiteContent, options) {
   const chatId = message.chat?.id;
   const text = toText(message.text);
@@ -4194,14 +4407,7 @@ async function handleMessage(token, message, readSiteContent, options) {
       return sendModelDetails(token, chatId, referencedModel, options);
     }
 
-    const activeSubscription = await options.billingStore.getActiveSubscription(chatId);
-
-    if (activeSubscription) {
-      return sendActiveSubscriptionMessage(token, chatId, activeSubscription, options);
-    }
-
-    await sendFavoriteStartPreviews(token, chatId, siteContent, options);
-    return sendManagedPreviewUpsellMessageV2(token, chatId, options);
+    return sendStartHomeExperience(token, chatId, siteContent, options);
 
     return sendText(
       token,
@@ -4455,7 +4661,7 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     const { planId, modelSlug } = parsePaymentActionPayload(data, 'pay');
     const model =
       modelSlug && modelSlug !== 'home' ? findModelByInput(siteContent.models, modelSlug) : null;
-    await answerCallbackQuery(token, callbackId, 'Gerando Pix...');
+    await answerCallbackQuery(token, callbackId, 'Abrindo Pix...');
     return createOrReusePixPayment(
       token,
       chatId,
@@ -4470,7 +4676,7 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
     const { planId, modelSlug } = parsePaymentActionPayload(data, 'repay');
     const model =
       modelSlug && modelSlug !== 'home' ? findModelByInput(siteContent.models, modelSlug) : null;
-    await answerCallbackQuery(token, callbackId, 'Gerando novo Pix...');
+    await answerCallbackQuery(token, callbackId, 'Verificando Pix ativo...');
     return createOrReusePixPayment(
       token,
       chatId,
@@ -4504,7 +4710,7 @@ async function handleCallbackQuery(token, callbackQuery, readSiteContent, option
 
   if (data.startsWith('cancel:')) {
     const paymentId = data.replace(/^cancel:/, '');
-    return cancelPendingPayment(token, chatId, paymentId, options, callbackId);
+    return cancelPendingPayment(token, chatId, paymentId, options, callbackId, siteContent);
   }
 
   await answerCallbackQuery(token, callbackId);
@@ -4587,8 +4793,12 @@ export function startTelegramBot({
       simulationEnabled: Boolean(paymentConfig?.simulationEnabled),
       fakePixEnabled: Boolean(paymentConfig?.fakePixEnabled),
       previewUsageWindowMs: Math.max(1000, Number(paymentConfig?.previewUsageWindowMs || 24 * 60 * 60 * 1000)),
-      pixTtlMs: Math.max(60000, Number(paymentConfig?.pixTtlMs || 8 * 60 * 1000)),
-      pixReminderMs: Math.max(0, Number(paymentConfig?.pixReminderMs || 4 * 60 * 1000)),
+      pixTtlMs: Math.max(60000, Number(paymentConfig?.pixTtlMs || 15 * 60 * 1000)),
+      pixReminderMs: Math.max(0, Number(paymentConfig?.pixReminderMs ?? 4 * 60 * 1000)),
+      pixReminderCooldownMs: Math.max(
+        0,
+        Number(paymentConfig?.pixReminderCooldownMs ?? 24 * 60 * 60 * 1000),
+      ),
       durationMs: Math.max(
         30 * 1000,
         ...(Array.isArray(paymentConfig?.plans) && paymentConfig.plans.length > 0
@@ -4597,10 +4807,12 @@ export function startTelegramBot({
       ),
       privateGroupChatId: toText(paymentConfig?.privateGroupChatId),
       webhookUrl: toText(paymentConfig?.webhookUrl),
-      testCustomer:
-        paymentConfig?.testCustomer && typeof paymentConfig.testCustomer === 'object'
-          ? paymentConfig.testCustomer
-          : {},
+      defaultCustomer:
+        paymentConfig?.defaultCustomer && typeof paymentConfig.defaultCustomer === 'object'
+          ? paymentConfig.defaultCustomer
+          : paymentConfig?.testCustomer && typeof paymentConfig.testCustomer === 'object'
+            ? paymentConfig.testCustomer
+            : {},
     },
   };
 
@@ -4737,9 +4949,16 @@ export function startTelegramBot({
   }
 
   poll();
+  const shortestPlanDurationMs = options.paymentConfig.plans
+    .map((plan) => Number(plan.durationMs || 0))
+    .filter((durationMs) => durationMs > 0)
+    .sort((left, right) => left - right)[0];
   const expirationCheckIntervalMs = Math.max(
     5000,
-    Math.min(60000, Math.floor((options.paymentConfig.durationMs || 30000) / 3)),
+    Math.min(
+      60000,
+      Math.floor((shortestPlanDurationMs || options.paymentConfig.durationMs || 30000) / 12),
+    ),
   );
   expirationInterval = setInterval(() => {
     expireSubscriptions(normalizedToken, options).catch((error) => {

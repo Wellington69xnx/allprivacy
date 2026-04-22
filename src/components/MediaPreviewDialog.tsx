@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type TouchEventHandler } from 'react';
 import { createPortal } from 'react-dom';
 import {
   claimMediaAudioFocus,
@@ -11,14 +11,21 @@ import {
   rememberMediaPlaybackTime,
 } from '../lib/mediaPlaybackMemory';
 import type { MediaPreviewDialogSelection } from '../types';
-import { CloseIcon, VolumeOffIcon, VolumeOnIcon } from './icons';
+import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, VolumeOffIcon, VolumeOnIcon } from './icons';
 
 interface MediaPreviewDialogProps {
   selection: MediaPreviewDialogSelection | null;
   onClose: () => void;
+  canNavigate?: boolean;
+  onNavigate?: (direction: 'previous' | 'next') => void;
 }
 
-export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogProps) {
+export function MediaPreviewDialog({
+  selection,
+  onClose,
+  canNavigate = false,
+  onNavigate,
+}: MediaPreviewDialogProps) {
   const item = selection?.item ?? null;
   const handoffPoster = selection?.handoffPoster || '';
   const initialPlaybackTime = selection?.initialPlaybackTime ?? 0;
@@ -28,9 +35,11 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
   const loadingTimeoutRef = useRef<number | null>(null);
   const initialSeekFallbackRef = useRef<number | null>(null);
   const isAwaitingInitialSeekRef = useRef(false);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [isPlaybackVisible, setIsPlaybackVisible] = useState(false);
+  const canNavigateMedia = Boolean(item && canNavigate && onNavigate);
 
   useEffect(() => {
     if (!item) {
@@ -42,6 +51,16 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
       if (event.key === 'Escape') {
         onClose();
       }
+
+      if (event.key === 'ArrowLeft' && canNavigateMedia) {
+        event.preventDefault();
+        onNavigate?.('previous');
+      }
+
+      if (event.key === 'ArrowRight' && canNavigateMedia) {
+        event.preventDefault();
+        onNavigate?.('next');
+      }
     };
 
     document.body.style.overflow = 'hidden';
@@ -51,7 +70,7 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [item, onClose]);
+  }, [canNavigateMedia, item, onClose, onNavigate]);
 
   useEffect(() => {
     setIsMuted(true);
@@ -116,6 +135,44 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
 
       return nextMuted;
     });
+  };
+
+  const handleNavigate = (direction: 'previous' | 'next') => {
+    if (!canNavigateMedia) {
+      return;
+    }
+
+    onNavigate?.(direction);
+  };
+
+  const handleSwipeStart: TouchEventHandler<HTMLDivElement> = (event) => {
+    if (!canNavigateMedia || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches[0];
+    swipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+    };
+  };
+
+  const handleSwipeEnd: TouchEventHandler<HTMLDivElement> = (event) => {
+    if (!canNavigateMedia || !swipeStartRef.current || event.changedTouches.length === 0) {
+      swipeStartRef.current = null;
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - swipeStartRef.current.x;
+    const deltaY = touch.clientY - swipeStartRef.current.y;
+    swipeStartRef.current = null;
+
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+      return;
+    }
+
+    handleNavigate(deltaX < 0 ? 'next' : 'previous');
   };
 
   const completeLoading = () => {
@@ -231,7 +288,11 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
               </div>
 
               <div className="p-3 sm:p-4">
-                <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-black">
+                <div
+                  className="relative touch-pan-y overflow-hidden rounded-[24px] border border-white/10 bg-black"
+                  onTouchStart={handleSwipeStart}
+                  onTouchEnd={handleSwipeEnd}
+                >
                   {showLoading && item.type !== 'video' ? (
                     <div className="absolute inset-0 z-20 skeleton-shimmer bg-black/20">
                       <div className="absolute inset-x-6 bottom-6 flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.16em] text-white/35">
@@ -368,6 +429,34 @@ export function MediaPreviewDialog({ selection, onClose }: MediaPreviewDialogPro
                       onLoad={completeLoading}
                     />
                   )}
+                  {canNavigateMedia ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleNavigate('previous');
+                        }}
+                        className="absolute left-3 top-1/2 z-40 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/48 text-white/85 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur-md transition hover:bg-black/75 hover:text-white sm:left-4 sm:h-12 sm:w-12"
+                        aria-label="Midia anterior"
+                      >
+                        <ChevronLeftIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleNavigate('next');
+                        }}
+                        className="absolute right-3 top-1/2 z-40 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-black/48 text-white/85 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur-md transition hover:bg-black/75 hover:text-white sm:right-4 sm:h-12 sm:w-12"
+                        aria-label="Proxima midia"
+                      >
+                        <ChevronRightIcon className="h-5 w-5" />
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </motion.div>

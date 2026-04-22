@@ -6,6 +6,31 @@ function toText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+const pendingPaymentStatuses = ['draft', 'pending', 'created', 'waiting_payment'];
+const reusablePaymentStatuses = [...pendingPaymentStatuses, 'cancelled'];
+
+function isPaymentDueWindowOpen(payment, now = Date.now()) {
+  if (!payment?.dueAt) {
+    return true;
+  }
+
+  const dueTimestamp = Date.parse(payment.dueAt);
+  return Number.isFinite(dueTimestamp) ? dueTimestamp > now : true;
+}
+
+function isPaymentPixWindowOpen(payment, now = Date.now()) {
+  if (!payment?.pixExpiresAt) {
+    return true;
+  }
+
+  const expiresTimestamp = Date.parse(payment.pixExpiresAt);
+  return Number.isFinite(expiresTimestamp) ? expiresTimestamp > now : true;
+}
+
+function isPaymentReusable(payment, now = Date.now()) {
+  return isPaymentDueWindowOpen(payment, now) && isPaymentPixWindowOpen(payment, now);
+}
+
 function cloneState(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -44,6 +69,7 @@ function normalizeCustomer(customer, chatIdKey) {
     previewRecentMediaKeys: Array.isArray(customer.previewRecentMediaKeys)
       ? customer.previewRecentMediaKeys.map((item) => toText(item)).filter(Boolean).slice(0, 24)
       : [],
+    pixReminderLastSentAt: toText(customer.pixReminderLastSentAt),
     previewUpsellMessageId: Number(customer.previewUpsellMessageId || 0) || null,
     supportMessageId: Number(customer.supportMessageId || 0) || null,
     siteMessageId: Number(customer.siteMessageId || 0) || null,
@@ -473,9 +499,7 @@ export function createBillingStore(filePath) {
       return (
         Object.values(state.payments)
           .filter((payment) => payment.chatId === chatIdKey)
-          .filter((payment) =>
-            ['draft', 'pending', 'created', 'waiting_payment'].includes(payment.status),
-          )
+          .filter((payment) => reusablePaymentStatuses.includes(payment.status))
           .filter((payment) => {
             if (!normalizedModelSlug) {
               return true;
@@ -490,22 +514,7 @@ export function createBillingStore(filePath) {
 
             return payment.planId === normalizedPlanId;
           })
-          .filter((payment) => {
-            if (!payment.dueAt) {
-              return true;
-            }
-
-            const dueTimestamp = Date.parse(payment.dueAt);
-            return Number.isFinite(dueTimestamp) ? dueTimestamp > now : true;
-          })
-          .filter((payment) => {
-            if (!payment.pixExpiresAt) {
-              return true;
-            }
-
-            const expiresTimestamp = Date.parse(payment.pixExpiresAt);
-            return Number.isFinite(expiresTimestamp) ? expiresTimestamp > now : true;
-          })
+          .filter((payment) => isPaymentReusable(payment, now))
           .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ??
         null
       );
@@ -519,9 +528,7 @@ export function createBillingStore(filePath) {
 
       return Object.values(state.payments)
         .filter((payment) => payment.chatId === chatIdKey)
-        .filter((payment) =>
-          ['draft', 'pending', 'created', 'waiting_payment'].includes(payment.status),
-        )
+        .filter((payment) => pendingPaymentStatuses.includes(payment.status))
         .filter((payment) => {
           if (!normalizedModelSlug) {
             return true;
@@ -536,14 +543,7 @@ export function createBillingStore(filePath) {
 
           return payment.planId === normalizedPlanId;
         })
-        .filter((payment) => {
-          if (!payment.dueAt) {
-            return true;
-          }
-
-          const dueTimestamp = Date.parse(payment.dueAt);
-          return Number.isFinite(dueTimestamp) ? dueTimestamp > now : true;
-        })
+        .filter((payment) => isPaymentReusable(payment, now))
         .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     },
     async listPendingPayments() {
@@ -551,17 +551,10 @@ export function createBillingStore(filePath) {
       const now = Date.now();
 
       return Object.values(state.payments)
-        .filter((payment) =>
-          ['draft', 'pending', 'created', 'waiting_payment'].includes(payment.status),
-        )
+        .filter((payment) => pendingPaymentStatuses.includes(payment.status))
         .filter((payment) => Boolean(payment.syncpayTransactionId))
         .filter((payment) => {
-          if (!payment.dueAt) {
-            return true;
-          }
-
-          const dueTimestamp = Date.parse(payment.dueAt);
-          return Number.isFinite(dueTimestamp) ? dueTimestamp > now : true;
+          return isPaymentDueWindowOpen(payment, now);
         })
         .sort((left, right) => Date.parse(left.updatedAt) - Date.parse(right.updatedAt));
     },

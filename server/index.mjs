@@ -53,27 +53,42 @@ const syncPayWebhookUrl =
       ? `?secret=${encodeURIComponent(syncPayWebhookSecret)}`
       : ''
   }`;
-const syncPayTestAmount7Days = Number(process.env.SYNC_PAY_TEST_AMOUNT_7D || process.env.SYNC_PAY_TEST_AMOUNT || 1.01);
-const syncPayTestAmount30Days = Number(process.env.SYNC_PAY_TEST_AMOUNT_30D || 1.02);
-const syncPayTestCustomerName = process.env.SYNC_PAY_TEST_CUSTOMER_NAME || '';
-const syncPayTestCustomerEmail = process.env.SYNC_PAY_TEST_CUSTOMER_EMAIL || '';
-const syncPayTestCustomerCpf = process.env.SYNC_PAY_TEST_CUSTOMER_CPF || '';
-const syncPayTestCustomerPhone = process.env.SYNC_PAY_TEST_CUSTOMER_PHONE || '';
-const subscriptionDuration7DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_7D || 30);
-const subscriptionDuration30DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_30D || 60);
+const syncPayAmount7Days = Number(
+  process.env.SYNC_PAY_AMOUNT_7D ||
+    process.env.SYNC_PAY_TEST_AMOUNT_7D ||
+    process.env.SYNC_PAY_TEST_AMOUNT ||
+    9.99,
+);
+const syncPayAmount30Days = Number(
+  process.env.SYNC_PAY_AMOUNT_30D ||
+    process.env.SYNC_PAY_TEST_AMOUNT_30D ||
+    19.99,
+);
+const syncPayDefaultCustomerName =
+  process.env.SYNC_PAY_DEFAULT_CUSTOMER_NAME || process.env.SYNC_PAY_TEST_CUSTOMER_NAME || '';
+const syncPayDefaultCustomerEmail =
+  process.env.SYNC_PAY_DEFAULT_CUSTOMER_EMAIL || process.env.SYNC_PAY_TEST_CUSTOMER_EMAIL || '';
+const syncPayDefaultCustomerCpf =
+  process.env.SYNC_PAY_DEFAULT_CUSTOMER_CPF || process.env.SYNC_PAY_TEST_CUSTOMER_CPF || '';
+const syncPayDefaultCustomerPhone =
+  process.env.SYNC_PAY_DEFAULT_CUSTOMER_PHONE || process.env.SYNC_PAY_TEST_CUSTOMER_PHONE || '';
+const subscriptionDuration7DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_7D || 7 * 24 * 60 * 60);
+const subscriptionDuration30DaysSeconds = Number(process.env.SUBSCRIPTION_DURATION_SECONDS_30D || 30 * 24 * 60 * 60);
 const previewUsageWindowSeconds = Number(process.env.PREVIEW_USAGE_WINDOW_SECONDS || 24 * 60 * 60);
 const previewUsageWindowMs = Math.max(1, previewUsageWindowSeconds) * 1000;
-const pixTtlSeconds = Number(process.env.PIX_TTL_SECONDS || 8 * 60);
+const pixTtlSeconds = Number(process.env.PIX_TTL_SECONDS || 15 * 60);
 const pixTtlMs = Math.max(60, pixTtlSeconds) * 1000;
 const pixReminderSeconds = Number(process.env.PIX_REMINDER_SECONDS || 4 * 60);
 const pixReminderMs = Math.max(0, pixReminderSeconds) * 1000;
+const pixReminderCooldownSeconds = Number(process.env.PIX_REMINDER_COOLDOWN_SECONDS || 24 * 60 * 60);
+const pixReminderCooldownMs = Math.max(0, pixReminderCooldownSeconds) * 1000;
 const paymentPlans = [
   {
     id: '7d',
     name: 'Plano 7 dias',
     durationLabel: '7 dias',
     displayAmount: 9.99,
-    chargeAmount: syncPayTestAmount7Days,
+    chargeAmount: syncPayAmount7Days,
     durationMs: Math.max(1, subscriptionDuration7DaysSeconds) * 1000,
   },
   {
@@ -81,7 +96,7 @@ const paymentPlans = [
     name: 'Plano 30 dias',
     durationLabel: '30 dias',
     displayAmount: 19.99,
-    chargeAmount: syncPayTestAmount30Days,
+    chargeAmount: syncPayAmount30Days,
     durationMs: Math.max(1, subscriptionDuration30DaysSeconds) * 1000,
   },
 ];
@@ -3020,13 +3035,14 @@ const telegramBot = startTelegramBot({
     previewUsageWindowMs,
     pixTtlMs,
     pixReminderMs,
+    pixReminderCooldownMs,
     privateGroupChatId: telegramPrivateGroupChatId,
     webhookUrl: syncPayWebhookUrl,
-    testCustomer: {
-      name: syncPayTestCustomerName,
-      email: syncPayTestCustomerEmail,
-      cpf: syncPayTestCustomerCpf,
-      phone: syncPayTestCustomerPhone,
+    defaultCustomer: {
+      name: syncPayDefaultCustomerName,
+      email: syncPayDefaultCustomerEmail,
+      cpf: syncPayDefaultCustomerCpf,
+      phone: syncPayDefaultCustomerPhone,
     },
   },
 });
@@ -3043,7 +3059,7 @@ app.listen(port, host, () => {
 
     if (!paymentFakePixEnabled && syncPayClient.enabled) {
       console.log(
-        `Syncpay habilitado para Pix de teste nos planos ${paymentPlans
+        `Syncpay habilitado para Pix real nos planos ${paymentPlans
           .map((plan) => `${plan.id}:${formatCurrencyBRL(plan.chargeAmount)}`)
           .join(' | ')}.`,
       );

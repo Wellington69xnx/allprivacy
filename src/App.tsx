@@ -177,7 +177,7 @@ export default function App() {
         ownerCoverImage: '/uploads/_legacy-root/xv.png',
         title: 'XVideosRED Bot 1',
         type: 'image',
-        thumbnail: '/uploads/_legacy-root/xv1.PNG',
+        thumbnail: '/uploads/_legacy-root/xv1.webp',
         accentFrom: '#991b1b',
         accentTo: '#7c3aed',
       },
@@ -190,7 +190,7 @@ export default function App() {
         ownerCoverImage: '/uploads/_legacy-root/xv.png',
         title: 'XVideosRED Bot 2',
         type: 'image',
-        thumbnail: '/uploads/_legacy-root/xv2.PNG',
+        thumbnail: '/uploads/_legacy-root/xv2.webp',
         accentFrom: '#991b1b',
         accentTo: '#7c3aed',
       },
@@ -203,7 +203,7 @@ export default function App() {
         ownerCoverImage: '/uploads/_legacy-root/xv.png',
         title: 'XVideosRED Bot 3',
         type: 'image',
-        thumbnail: '/uploads/_legacy-root/xv3.PNG',
+        thumbnail: '/uploads/_legacy-root/xv3.webp',
         accentFrom: '#991b1b',
         accentTo: '#7c3aed',
       },
@@ -216,7 +216,7 @@ export default function App() {
         ownerCoverImage: '/uploads/_legacy-root/xv.png',
         title: 'XVideosRED Bot Vídeo',
         type: 'video',
-        thumbnail: '/uploads/_legacy-root/xv3.PNG',
+        thumbnail: '/uploads/_legacy-root/xv-video-thumb.webp',
         src: '/uploads/_legacy-root/xv.MP4',
         disableAutoplay: true,
         accentFrom: '#991b1b',
@@ -708,6 +708,7 @@ export default function App() {
             sectionClassName="pt-11 sm:pt-10"
             showOwnerBadge={false}
             showCtaCard={false}
+            enableDialogNavigation
           />
           <ModelsStories
             models={visibleHomeModels}

@@ -31,6 +31,7 @@ interface PreviewCarouselProps {
   ctaScrollTargetId?: string;
   showOwnerBadge?: boolean;
   showCtaCard?: boolean;
+  enableDialogNavigation?: boolean;
 }
 
 export function PreviewCarousel({
@@ -56,6 +57,7 @@ export function PreviewCarousel({
   ctaScrollTargetId = 'cta-final',
   showOwnerBadge = true,
   showCtaCard = true,
+  enableDialogNavigation = false,
 }: PreviewCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollSyncFrameRef = useRef<number | null>(null);
@@ -360,6 +362,30 @@ export function PreviewCarousel({
     };
   };
 
+  const handleDialogNavigation = (direction: 'previous' | 'next') => {
+    if (!enableDialogNavigation || !selectedItem || items.length <= 1) {
+      return;
+    }
+
+    const currentIndex = items.findIndex((item) => item.id === selectedItem.item.id);
+
+    if (currentIndex === -1) {
+      return;
+    }
+
+    const nextIndex =
+      direction === 'next'
+        ? (currentIndex + 1) % items.length
+        : (currentIndex - 1 + items.length) % items.length;
+    const nextItem = items[nextIndex];
+
+    if (nextItem) {
+      setSelectedItem({ item: nextItem });
+    }
+  };
+
+  const canNavigateDialog = enableDialogNavigation && items.length > 1;
+
   return (
     <motion.section
       id={id}
@@ -524,7 +550,12 @@ export function PreviewCarousel({
         </div>
       )}
 
-      <MediaPreviewDialog selection={selectedItem} onClose={() => setSelectedItem(null)} />
+      <MediaPreviewDialog
+        selection={selectedItem}
+        onClose={() => setSelectedItem(null)}
+        canNavigate={canNavigateDialog}
+        onNavigate={handleDialogNavigation}
+      />
     </motion.section>
   );
 }
