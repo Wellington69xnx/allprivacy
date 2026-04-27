@@ -9,10 +9,6 @@ import { fileURLToPath } from 'node:url';
 import { createBillingStore } from './billing-store.mjs';
 import { createSyncPayClient } from './syncpay-client.mjs';
 import { startTelegramBot } from './telegram-bot.mjs';
-import { startCleanerBot } from './cleaner-bot.mjs';
-
-const cleanerBotToken = process.env.CLEANER_BOT_TOKEN || '8399490615:AAGgWRT65BBjaou5ff4R5Qm2BMKzZ_k4q34';
-const cleanerBotAdminIds = [8018785433, 7228335041];
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3072,10 +3068,5 @@ app.listen(port, host, () => {
     );
   }
 
-  const cleanerBot = startCleanerBot({ token: cleanerBotToken, adminIds: cleanerBotAdminIds });
-  if (cleanerBot.enabled) {
-    console.log('Cleaner Bot (remove forward tag) iniciado.');
-  } else {
-    console.log('Cleaner Bot desativado (sem token).');
-  }
+  console.log('NoReply separado do servidor principal. Use npm.cmd run noreply:bot para iniciar somente ele.');
 });

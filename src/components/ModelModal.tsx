@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasWarmVideo, primeKnownWarmVideos } from '../lib/mediaWarmCache';
-import type { ModelProfile } from '../types';
+import type { ModelMedia, ModelProfile } from '../types';
 import { AutoplayMedia } from './AutoplayMedia';
 import { CtaBonusNote } from './CtaBonusNote';
-import { CloseIcon } from './icons';
+import { CloseIcon, PlayIcon } from './icons';
 import { TelegramCTA } from './TelegramCTA';
 
 interface ModelModalProps {
@@ -18,6 +18,152 @@ interface GhostPreviewCard {
   id: string;
   image: string;
   aspectClassName: string;
+}
+
+interface ModelModalMediaTileProps {
+  item: ModelMedia;
+  isDesktopViewport: boolean;
+  isMobileVideoActive: boolean;
+  onActivateMobileVideo: (itemId: string) => void;
+}
+
+function ModelModalMediaTile({
+  item,
+  isDesktopViewport,
+  isMobileVideoActive,
+  onActivateMobileVideo,
+}: ModelModalMediaTileProps) {
+  const mobileVideoRef = useRef<HTMLVideoElement>(null);
+  const [isMobileVideoPaused, setIsMobileVideoPaused] = useState(false);
+
+  useEffect(() => {
+    if (item.type !== 'video' || isDesktopViewport) {
+      return;
+    }
+
+    if (!isMobileVideoActive) {
+      setIsMobileVideoPaused(false);
+      return;
+    }
+
+    const video = mobileVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    if (isMobileVideoPaused) {
+      video.pause();
+      return;
+    }
+
+    const playPromise = video.play();
+
+    if (playPromise) {
+      playPromise.catch(() => {
+        setIsMobileVideoPaused(true);
+      });
+    }
+  }, [isDesktopViewport, isMobileVideoActive, isMobileVideoPaused, item.type]);
+
+  const handleMobileVideoToggle = () => {
+    if (!isMobileVideoActive) {
+      setIsMobileVideoPaused(false);
+      onActivateMobileVideo(item.id);
+      return;
+    }
+
+    setIsMobileVideoPaused((current) => !current);
+  };
+
+  if (item.type === 'video' && !isDesktopViewport) {
+    if (!item.src) {
+      return (
+        <img
+          src={item.thumbnail}
+          alt={item.title}
+          className="h-full w-full object-cover object-center"
+          loading="lazy"
+        />
+      );
+    }
+
+    if (isMobileVideoActive) {
+      return (
+        <button
+          type="button"
+          onClick={handleMobileVideoToggle}
+          className="group relative h-full w-full overflow-hidden bg-black text-left"
+          aria-label={`${isMobileVideoPaused ? 'Retomar' : 'Pausar'} video ${item.title}`}
+        >
+          <video
+            ref={mobileVideoRef}
+            src={item.src}
+            poster={item.thumbnail}
+            className="h-full w-full object-contain"
+            playsInline
+            preload="none"
+            muted
+            loop
+            onPlay={() => {
+              setIsMobileVideoPaused(false);
+            }}
+            onPause={() => {
+              setIsMobileVideoPaused(true);
+            }}
+          />
+          <div
+            className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-black/18 transition-opacity duration-200 ${
+              isMobileVideoPaused ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-black/52 text-white shadow-[0_18px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
+              <PlayIcon className="ml-1 h-7 w-7" />
+            </span>
+          </div>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => onActivateMobileVideo(item.id)}
+        className="group relative h-full w-full overflow-hidden bg-black text-left"
+        aria-label={`Reproduzir video ${item.title}`}
+      >
+        <img
+          src={item.thumbnail}
+          alt={item.title}
+          className="h-full w-full object-cover object-center"
+          loading="lazy"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(6,6,8,0.08),rgba(6,6,8,0.18),rgba(6,6,8,0.52))]" />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-black/52 text-white shadow-[0_18px_40px_rgba(0,0,0,0.45)] backdrop-blur-md transition group-active:scale-95">
+            <PlayIcon className="ml-1 h-7 w-7" />
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <AutoplayMedia
+      type={item.type}
+      src={item.src}
+      poster={item.thumbnail}
+      alt={item.title}
+      className="h-full w-full"
+      preloadStrategy={
+        item.type === 'video' && hasWarmVideo(item.src)
+          ? 'auto'
+          : 'metadata'
+      }
+      showVolumeToggle
+      showLoadingSkeleton
+    />
+  );
 }
 
 function buildGhostPreviewCards(model: ModelProfile | null, models: ModelProfile[]) {
@@ -77,6 +223,7 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
   const [visibleCount, setVisibleCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const [activeMobileVideoId, setActiveMobileVideoId] = useState<string | null>(null);
   const [ghostRevealCount, setGhostRevealCount] = useState(2);
   const [ghostRevealClicks, setGhostRevealClicks] = useState(0);
 
@@ -130,6 +277,7 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
     if (!model) {
       setVisibleCount(0);
       setIsLoadingMore(false);
+      setActiveMobileVideoId(null);
       setGhostRevealCount(2);
       setGhostRevealClicks(0);
       return;
@@ -146,6 +294,7 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
 
     setVisibleCount(Math.min(model.gallery.length, initialCount));
     setIsLoadingMore(false);
+    setActiveMobileVideoId(null);
     setGhostRevealCount(typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches ? 3 : 2);
     setGhostRevealClicks(0);
 
@@ -166,6 +315,12 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
         .map((item) => item.src),
     );
   }, [model]);
+
+  useEffect(() => {
+    if (isDesktopViewport) {
+      setActiveMobileVideoId(null);
+    }
+  }, [isDesktopViewport]);
 
   useEffect(() => {
     return () => {
@@ -316,19 +471,11 @@ export function ModelModal({ model, models, onClose, ctaHref }: ModelModalProps)
                               item.type === 'video' ? 'aspect-[9/16]' : 'aspect-[4/5]'
                             }`}
                           >
-                            <AutoplayMedia
-                              type={item.type}
-                              src={item.src}
-                              poster={item.thumbnail}
-                              alt={item.title}
-                              className="h-full w-full"
-                              preloadStrategy={
-                                item.type === 'video' && hasWarmVideo(item.src)
-                                  ? 'auto'
-                                  : 'metadata'
-                              }
-                              showVolumeToggle
-                              showLoadingSkeleton
+                            <ModelModalMediaTile
+                              item={item}
+                              isDesktopViewport={isDesktopViewport}
+                              isMobileVideoActive={activeMobileVideoId === item.id}
+                              onActivateMobileVideo={setActiveMobileVideoId}
                             />
                           </div>
                         </article>
