@@ -17,7 +17,8 @@
     "telegram:dump": "node server/telegram-media-export.mjs",
     "telegram:upload": "node server/telegram-media-upload.mjs",
     "telegram:relay-forward": "node server/telegram-forward-relay.mjs",
-    "telegram:login:qr": "node server/telegram-qr-login.mjs"
+    "telegram:login:qr": "node server/telegram-qr-login.mjs",
+    "site:optimize-images": "node server/optimize-site-images.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
@@ -38,6 +39,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "sharp": "^0.34.5",
     "telegram": "^2.26.22"
   }
 }

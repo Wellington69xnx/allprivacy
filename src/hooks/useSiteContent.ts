@@ -20,7 +20,11 @@ const DELETE_ASSETS_ENDPOINT = '/api/admin/assets/delete';
 const TRIM_EXISTING_VIDEO_ENDPOINT = '/api/admin/video/trim-existing';
 const TELEGRAM_CACHE_WARM_ENDPOINT = '/api/admin/telegram-cache/warm-all';
 const TELEGRAM_CACHE_SINGLE_ENDPOINT = '/api/admin/telegram-cache/warm-one';
-const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v1';
+const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v2';
+const LEGACY_SITE_CONTENT_CACHE_KEYS = [
+  'allprivacy-site-content-cache-v1',
+  SITE_CONTENT_CACHE_KEY,
+];
 
 interface ModelInput {
   id?: string;
@@ -55,6 +59,13 @@ interface FullContentCommentRemoveInput {
   modelId: string;
   contentId: string;
   commentId: string;
+}
+
+interface MoveModelContentInput {
+  sourceModelId: string;
+  targetModelId: string;
+  moveGallery: boolean;
+  moveFullContent: boolean;
 }
 
 interface HeroBackgroundInput {
@@ -177,29 +188,36 @@ function readCachedSiteContent() {
     return null;
   }
 
-  try {
-    const raw = window.localStorage.getItem(SITE_CONTENT_CACHE_KEY);
-
-    if (!raw) {
-      return null;
+  for (const cacheKey of LEGACY_SITE_CONTENT_CACHE_KEYS) {
+    try {
+      window.localStorage.removeItem(cacheKey);
+    } catch {
+      // O conteudo do site precisa vir da API para nao prender modelo antigo no navegador.
     }
-
-    return JSON.parse(raw) as SiteContent;
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 function writeCachedSiteContent(content: SiteContent) {
+  void content;
+
   if (typeof window === 'undefined') {
     return;
   }
 
-  try {
-    window.localStorage.setItem(SITE_CONTENT_CACHE_KEY, JSON.stringify(content));
-  } catch {
-    // Falha de cache local nao deve quebrar o fluxo principal.
+  for (const cacheKey of LEGACY_SITE_CONTENT_CACHE_KEYS) {
+    try {
+      window.localStorage.removeItem(cacheKey);
+    } catch {
+      // Falha ao limpar cache local nao deve quebrar o fluxo principal.
+    }
   }
+}
+
+function buildUncachedSiteContentEndpoint() {
+  const version = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${SITE_CONTENT_ENDPOINT}?_=${encodeURIComponent(version)}`;
 }
 
 function buildMediaItem(input: MediaInput) {
@@ -313,9 +331,9 @@ function parseXhrErrorMessage(
 
 export function useSiteContent() {
   const [siteContent, setSiteContent] = useState<SiteContent>(
-    () => readCachedSiteContent() ?? cloneDefaultContent(),
+    () => cloneDefaultContent(),
   );
-  const [isLoading, setIsLoading] = useState(() => readCachedSiteContent() === null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const siteContentRef = useRef(siteContent);
@@ -335,7 +353,13 @@ export function useSiteContent() {
     }
 
     try {
-      const response = await fetch(SITE_CONTENT_ENDPOINT);
+      const response = await fetch(buildUncachedSiteContentEndpoint(), {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      });
       const data = await parseJsonResponse<SiteContentResponse>(response);
       siteContentRef.current = data.siteContent;
       setSiteContent(data.siteContent);
@@ -369,8 +393,11 @@ export function useSiteContent() {
     try {
       const response = await fetch(SITE_CONTENT_ENDPOINT, {
         method: 'PUT',
+        cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
         },
         credentials: 'same-origin',
         body: JSON.stringify(nextContent),
@@ -822,6 +849,65 @@ export function useSiteContent() {
     [removeUploadedAssets, siteContent.models, updateSiteContent],
   );
 
+  const moveModelContent = useCallback(
+    async ({
+      sourceModelId,
+      targetModelId,
+      moveGallery,
+      moveFullContent,
+    }: MoveModelContentInput) => {
+      if (!sourceModelId || !targetModelId || sourceModelId === targetModelId) {
+        throw new Error('Selecione modelos diferentes para mover o conteudo.');
+      }
+
+      if (!moveGallery && !moveFullContent) {
+        throw new Error('Escolha pelo menos um tipo de conteudo para mover.');
+      }
+
+      await updateSiteContent((current) => {
+        const sourceModel = current.models.find((model) => model.id === sourceModelId);
+        const targetModel = current.models.find((model) => model.id === targetModelId);
+
+        if (!sourceModel || !targetModel) {
+          throw new Error('Modelo de origem ou destino nao encontrada.');
+        }
+
+        const galleryToMove = moveGallery ? sourceModel.gallery : [];
+        const fullContentToMove = moveFullContent ? sourceModel.fullContentVideos || [] : [];
+
+        if (galleryToMove.length === 0 && fullContentToMove.length === 0) {
+          throw new Error('A modelo de origem nao tem conteudo desse tipo para mover.');
+        }
+
+        return {
+          ...current,
+          models: current.models.map((model) => {
+            if (model.id === sourceModelId) {
+              return {
+                ...model,
+                gallery: moveGallery ? [] : model.gallery,
+                fullContentVideos: moveFullContent ? [] : model.fullContentVideos || [],
+              };
+            }
+
+            if (model.id === targetModelId) {
+              return {
+                ...model,
+                gallery: moveGallery ? [...model.gallery, ...galleryToMove] : model.gallery,
+                fullContentVideos: moveFullContent
+                  ? [...(model.fullContentVideos || []), ...fullContentToMove]
+                  : model.fullContentVideos || [],
+              };
+            }
+
+            return model;
+          }),
+        };
+      });
+    },
+    [updateSiteContent],
+  );
+
   const removeModelFullContentComment = useCallback(
     async ({ modelId, contentId, commentId }: FullContentCommentRemoveInput) => {
       await updateSiteContent((current) => ({
@@ -1027,6 +1113,7 @@ export function useSiteContent() {
     toggleModelMediaFavorite,
     addModelFullContentVideo,
     removeModelFullContentVideo,
+    moveModelContent,
     removeModelFullContentComment,
     addGroupProofItem,
     removeGroupProofItem,

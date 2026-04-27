@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
+import sharp from 'sharp';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
@@ -276,6 +277,17 @@ function hasValidPaymentSecret(req) {
   return secret === syncPayWebhookSecret;
 }
 
+function setNoStoreHeaders(res) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    'CDN-Cache-Control': 'no-store',
+    'Cloudflare-CDN-Cache-Control': 'no-store',
+    'Surrogate-Control': 'no-store',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+}
+
 function sanitizeFilename(originalName, mimeType) {
   const originalExtension = path.extname(originalName || '');
   const mimeExtension = mimeType?.split('/')[1] ? `.${mimeType.split('/')[1]}` : '';
@@ -415,6 +427,198 @@ function buildUploadUrlFromPath(filePath) {
     .join('/');
 
   return `/uploads/${publicPath}`;
+}
+
+function isOptimizableImageMimeType(mimeType) {
+  const normalizedMimeType = toText(mimeType).toLowerCase();
+
+  return [
+    'image/avif',
+    'image/heic',
+    'image/heif',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/tiff',
+    'image/webp',
+  ].includes(normalizedMimeType);
+}
+
+function getImageOptimizationProfile(meta) {
+  const bucket = toText(meta?.bucket);
+  const target = toText(meta?.target) === 'mobile' ? 'mobile' : 'desktop';
+
+  if (bucket === 'model-profile') {
+    return {
+      maxWidth: 420,
+      maxHeight: 420,
+      fit: 'cover',
+      quality: 78,
+    };
+  }
+
+  if (bucket === 'model-cover') {
+    return {
+      maxWidth: 1280,
+      maxHeight: 900,
+      fit: 'inside',
+      quality: 80,
+    };
+  }
+
+  if (bucket === 'model-media') {
+    return {
+      maxWidth: 1600,
+      maxHeight: 1600,
+      fit: 'inside',
+      quality: 84,
+    };
+  }
+
+  if (bucket === 'hero-background') {
+    return target === 'mobile'
+      ? {
+          maxWidth: 1000,
+          maxHeight: 1600,
+          fit: 'inside',
+          quality: 80,
+        }
+      : {
+          maxWidth: 1800,
+          maxHeight: 1200,
+          fit: 'inside',
+          quality: 80,
+        };
+  }
+
+  if (bucket === 'group-proof') {
+    return {
+      maxWidth: 1400,
+      maxHeight: 1400,
+      fit: 'inside',
+      quality: 82,
+    };
+  }
+
+  return {
+    maxWidth: 1600,
+    maxHeight: 1600,
+    fit: 'inside',
+    quality: 82,
+  };
+}
+
+function hasImageExceededProfile(metadata, profile) {
+  const width = Number(metadata?.width || 0);
+  const height = Number(metadata?.height || 0);
+
+  return (
+    (profile.maxWidth && width > profile.maxWidth) ||
+    (profile.maxHeight && height > profile.maxHeight)
+  );
+}
+
+async function optimizeUploadedImage(filePath, meta, file) {
+  const normalizedPath = toText(filePath);
+  const originalMimeType = toText(file?.mimetype) || 'image/jpeg';
+
+  if (!normalizedPath || !isOptimizableImageMimeType(originalMimeType)) {
+    return {
+      filePath: normalizedPath,
+      mimeType: originalMimeType,
+      optimized: false,
+      originalSize: 0,
+      finalSize: 0,
+    };
+  }
+
+  const originalStats = await fs.stat(normalizedPath);
+  const originalSize = Number(originalStats.size || 0);
+  const profile = getImageOptimizationProfile(meta);
+  const parsedPath = path.parse(normalizedPath);
+  const finalPath =
+    parsedPath.ext.toLowerCase() === '.webp'
+      ? normalizedPath
+      : await getUniqueFilePath(parsedPath.dir, `${parsedPath.name}.webp`);
+  const tempOutputPath = path.join(
+    parsedPath.dir,
+    `${parsedPath.name}.optimized-${randomUUID()}.webp`,
+  );
+
+  try {
+    const metadata = await sharp(normalizedPath, { failOn: 'none', animated: false }).metadata();
+    const dimensionsExceeded = hasImageExceededProfile(metadata, profile);
+
+    await sharp(normalizedPath, { failOn: 'none', animated: false })
+      .rotate()
+      .resize({
+        width: profile.maxWidth,
+        height: profile.maxHeight,
+        fit: profile.fit,
+        withoutEnlargement: true,
+      })
+      .webp({
+        quality: profile.quality,
+        effort: 4,
+        smartSubsample: true,
+      })
+      .toFile(tempOutputPath);
+
+    const optimizedStats = await fs.stat(tempOutputPath);
+    const optimizedSize = Number(optimizedStats.size || 0);
+    const meaningfulSavingBytes = Math.max(12 * 1024, Math.round(originalSize * 0.04));
+    const shouldUseOptimized =
+      dimensionsExceeded || optimizedSize + meaningfulSavingBytes < originalSize;
+
+    if (!shouldUseOptimized) {
+      await fs.unlink(tempOutputPath);
+      return {
+        filePath: normalizedPath,
+        mimeType: originalMimeType,
+        optimized: false,
+        originalSize,
+        finalSize: originalSize,
+      };
+    }
+
+    if (path.resolve(finalPath) !== path.resolve(normalizedPath)) {
+      await fs.unlink(normalizedPath);
+    }
+
+    try {
+      await fs.unlink(finalPath);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+
+    await fs.rename(tempOutputPath, finalPath);
+
+    return {
+      filePath: finalPath,
+      mimeType: 'image/webp',
+      optimized: true,
+      originalSize,
+      finalSize: optimizedSize,
+    };
+  } catch (error) {
+    try {
+      await fs.unlink(tempOutputPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    console.warn('[upload] nao foi possivel otimizar imagem, mantendo original:', error);
+
+    return {
+      filePath: normalizedPath,
+      mimeType: originalMimeType,
+      optimized: false,
+      originalSize,
+      finalSize: originalSize,
+    };
+  }
 }
 
 function readUploadMeta(req) {
@@ -2497,7 +2701,15 @@ app.set('trust proxy', true);
 
 app.use(express.json({ limit: '20mb' }));
 
-const uploadsStaticMiddleware = express.static(uploadsDir);
+app.use('/api', (_req, res, next) => {
+  setNoStoreHeaders(res);
+  next();
+});
+
+const uploadsStaticMiddleware = express.static(uploadsDir, {
+  immutable: true,
+  maxAge: '30d',
+});
 
 app.use('/uploads', (req, res, next) => {
   uploadsStaticMiddleware(req, res, (error) => {
@@ -2858,6 +3070,9 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
   const uploadedMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
   const trimMeta = normalizeUploadTrimMeta(uploadMeta, uploadedMediaType);
   const uploadedFilePath = path.join(req.file.destination, req.file.filename);
+  let finalFilePath = uploadedFilePath;
+  let finalMimeType = trimMeta ? 'video/mp4' : req.file.mimetype;
+  let imageOptimizationResult = null;
 
   try {
     if (trimMeta) {
@@ -2871,11 +3086,17 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
         await optimizePreviewVideoForPlayback(uploadedFilePath, { force: true });
       }
     }
+
+    if (uploadedMediaType === 'image') {
+      imageOptimizationResult = await optimizeUploadedImage(uploadedFilePath, uploadMeta, req.file);
+      finalFilePath = imageOptimizationResult.filePath || uploadedFilePath;
+      finalMimeType = imageOptimizationResult.mimeType || req.file.mimetype;
+    }
   } catch (error) {
-    console.error('[upload] falha ao cortar video:', error);
+    console.error('[upload] falha ao processar arquivo enviado:', error);
 
     try {
-      await fs.unlink(uploadedFilePath);
+      await fs.unlink(finalFilePath);
     } catch {
       // Arquivo ja pode ter sido removido.
     }
@@ -2884,14 +3105,13 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
       message:
         error instanceof Error
           ? error.message
-          : 'Nao foi possivel cortar o video enviado.',
+          : 'Nao foi possivel processar o arquivo enviado.',
     });
     return;
   }
 
-  const finalStats = await fs.stat(uploadedFilePath);
-  const uploadedAssetUrl = buildUploadUrlFromPath(uploadedFilePath);
-  const finalMimeType = trimMeta ? 'video/mp4' : req.file.mimetype;
+  const finalStats = await fs.stat(finalFilePath);
+  const uploadedAssetUrl = buildUploadUrlFromPath(finalFilePath);
   let thumbnailUrl = '';
 
   if (uploadedMediaType === 'video') {
@@ -2920,15 +3140,17 @@ app.post('/api/upload', requireAdminAuth, upload.single('file'), async (req, res
   }
 
   console.log(
-    `[upload] bucket=${toText(uploadMeta.bucket) || 'default'} model=${toText(uploadMeta.modelName) || '-'} file=${req.file.filename} type=${uploadedMediaType} url=${uploadedAssetUrl}`,
+    `[upload] bucket=${toText(uploadMeta.bucket) || 'default'} model=${toText(uploadMeta.modelName) || '-'} file=${path.basename(finalFilePath)} type=${uploadedMediaType} size=${String(finalStats.size)} url=${uploadedAssetUrl}`,
   );
 
   res.status(201).json({
     url: uploadedAssetUrl,
-    filename: req.file.filename,
+    filename: path.basename(finalFilePath),
     mimeType: finalMimeType,
     size: finalStats.size,
     thumbnailUrl,
+    optimized: Boolean(imageOptimizationResult?.optimized),
+    originalSize: imageOptimizationResult?.originalSize ?? finalStats.size,
   });
 });
 
@@ -2980,13 +3202,25 @@ app.use((error, req, res, next) => {
 try {
   await fs.access(distDir);
 
-  app.use(express.static(distDir));
+  app.use(
+    express.static(distDir, {
+      setHeaders(res, filePath) {
+        if (path.basename(filePath).toLowerCase() === 'index.html') {
+          setNoStoreHeaders(res);
+          return;
+        }
+
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    }),
+  );
   app.get(/^(?!\/api|\/uploads).*/, (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       next();
       return;
     }
 
+    setNoStoreHeaders(res);
     res.sendFile(path.join(distDir, 'index.html'));
   });
 } catch {

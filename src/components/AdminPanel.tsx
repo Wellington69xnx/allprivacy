@@ -86,6 +86,12 @@ interface AdminPanelProps {
     contentId: string,
     options?: { deleteAssetFiles?: boolean },
   ) => Promise<void>;
+  moveModelContent: (input: {
+    sourceModelId: string;
+    targetModelId: string;
+    moveGallery: boolean;
+    moveFullContent: boolean;
+  }) => Promise<void>;
   addGroupProofItem: (input: { title: string; image: string }) => Promise<void>;
   removeGroupProofItem: (
     itemId: string,
@@ -134,6 +140,13 @@ interface MediaFormState {
   modelId: string;
   title: string;
   subtitle: string;
+}
+
+interface MoveContentFormState {
+  sourceModelId: string;
+  targetModelId: string;
+  moveGallery: boolean;
+  moveFullContent: boolean;
 }
 
 interface GroupProofFormState {
@@ -190,7 +203,7 @@ interface TaskProgressState {
 }
 
 type PreviewShape = 'circle' | 'landscape' | 'portrait' | 'square';
-type SectionId = 'model' | 'media' | 'backgrounds' | 'proofs' | 'models';
+type SectionId = 'model' | 'media' | 'move' | 'backgrounds' | 'proofs' | 'models';
 
 const emptyModelForm: ModelFormState = {
   name: '',
@@ -204,6 +217,13 @@ const emptyMediaForm: MediaFormState = {
   modelId: '',
   title: '',
   subtitle: '',
+};
+
+const emptyMoveContentForm: MoveContentFormState = {
+  sourceModelId: '',
+  targetModelId: '',
+  moveGallery: true,
+  moveFullContent: true,
 };
 
 const emptyGroupProofForm: GroupProofFormState = {
@@ -1912,6 +1932,7 @@ export function AdminPanel({
   toggleModelMediaFavorite,
   addModelFullContentVideo,
   removeModelFullContentVideo,
+  moveModelContent,
   addGroupProofItem,
   removeGroupProofItem,
   addHeroBackground,
@@ -1925,6 +1946,7 @@ export function AdminPanel({
   const initialCacheWarmState = readStoredCacheWarmState();
   const [modelForm, setModelForm] = useState(emptyModelForm);
   const [mediaForm, setMediaForm] = useState(emptyMediaForm);
+  const [moveContentForm, setMoveContentForm] = useState(emptyMoveContentForm);
   const [groupProofForm, setGroupProofForm] = useState(emptyGroupProofForm);
   const [heroBackgroundForm, setHeroBackgroundForm] = useState(emptyHeroBackgroundForm);
   const [modelFiles, setModelFiles] = useState(emptyModelFiles);
@@ -1978,6 +2000,7 @@ export function AdminPanel({
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({
     model: false,
     media: false,
+    move: false,
     backgrounds: false,
     proofs: false,
     models: false,
@@ -2001,6 +2024,41 @@ export function AdminPanel({
       }));
     }
   }, [mediaForm.modelId, siteContent.models]);
+
+  useEffect(() => {
+    const sourceExists = siteContent.models.some(
+      (model) => model.id === moveContentForm.sourceModelId,
+    );
+    const targetExists = siteContent.models.some(
+      (model) => model.id === moveContentForm.targetModelId,
+    );
+
+    if (
+      sourceExists &&
+      targetExists &&
+      moveContentForm.sourceModelId !== moveContentForm.targetModelId
+    ) {
+      return;
+    }
+
+    setMoveContentForm((current) => {
+      const sourceModelId = sourceExists
+        ? current.sourceModelId
+        : siteContent.models[0]?.id ?? '';
+      const nextTarget =
+        siteContent.models.find((model) => model.id !== sourceModelId) ??
+        siteContent.models[1] ??
+        null;
+
+      return {
+        ...current,
+        sourceModelId,
+        targetModelId: targetExists && current.targetModelId !== sourceModelId
+          ? current.targetModelId
+          : nextTarget?.id ?? '',
+      };
+    });
+  }, [moveContentForm.sourceModelId, moveContentForm.targetModelId, siteContent.models]);
 
   useEffect(() => {
     if (siteContent.models.length === 0) {
@@ -2645,6 +2703,76 @@ export function AdminPanel({
         setMediaFiles(emptyMediaFiles);
       },
     });
+  };
+
+  const handleMoveContentSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (activeTask) {
+      return;
+    }
+
+    const sourceModel = siteContent.models.find(
+      (model) => model.id === moveContentForm.sourceModelId,
+    );
+    const targetModel = siteContent.models.find(
+      (model) => model.id === moveContentForm.targetModelId,
+    );
+
+    if (!sourceModel || !targetModel) {
+      setFeedback('Selecione a modelo de origem e a modelo de destino.');
+      return;
+    }
+
+    if (sourceModel.id === targetModel.id) {
+      setFeedback('A origem e o destino precisam ser modelos diferentes.');
+      return;
+    }
+
+    if (!moveContentForm.moveGallery && !moveContentForm.moveFullContent) {
+      setFeedback('Marque pelo menos um tipo de conteudo para mover.');
+      return;
+    }
+
+    const movingGalleryCount = moveContentForm.moveGallery ? sourceModel.gallery.length : 0;
+    const movingFullContentCount = moveContentForm.moveFullContent
+      ? sourceModel.fullContentVideos?.length ?? 0
+      : 0;
+
+    if (movingGalleryCount + movingFullContentCount === 0) {
+      setFeedback('A modelo de origem nao tem conteudo marcado para mover.');
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        `Mover ${movingGalleryCount} previa(s) e ${movingFullContentCount} exclusivo(s) de ${sourceModel.name} para ${targetModel.name}?`,
+      )
+    ) {
+      return;
+    }
+
+    setActiveTask('move-content');
+    setFeedback(null);
+
+    try {
+      await moveModelContent({
+        sourceModelId: sourceModel.id,
+        targetModelId: targetModel.id,
+        moveGallery: moveContentForm.moveGallery,
+        moveFullContent: moveContentForm.moveFullContent,
+      });
+
+      setFeedback(
+        `Conteudo movido: ${movingGalleryCount} previa(s) e ${movingFullContentCount} exclusivo(s) foram para ${targetModel.name}.`,
+      );
+      setOpenSections((current) => ({ ...current, models: true }));
+    } catch (error) {
+      setFeedback(getTaskErrorMessage(error, 'Nao foi possivel mover o conteudo agora.'));
+    } finally {
+      setActiveTask(null);
+    }
   };
 
   const handleSaveFullContentVideo = async (model: ModelProfile) => {
@@ -4372,6 +4500,131 @@ export function AdminPanel({
               {getTaskProgress('media') ? (
                 <TaskProgressBar progress={getTaskProgress('media')!} />
               ) : null}
+            </form>
+          </AdminSection>
+
+          <AdminSection
+            title="Mover conteudo"
+            countLabel={siteContent.models.length < 2 ? 'Precisa de 2 modelos' : undefined}
+            sectionId="admin-section-move-content"
+            isOpen={openSections.move}
+            onToggle={() => toggleSection('move')}
+          >
+            <form className="grid gap-4" onSubmit={(event) => void handleMoveContentSubmit(event)}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className={labelClassName()}>Origem</span>
+                  <select
+                    value={moveContentForm.sourceModelId}
+                    onChange={(event) =>
+                      setMoveContentForm((current) => {
+                        const sourceModelId = event.target.value;
+                        const fallbackTarget =
+                          siteContent.models.find((model) => model.id !== sourceModelId)?.id ?? '';
+
+                        return {
+                          ...current,
+                          sourceModelId,
+                          targetModelId:
+                            current.targetModelId && current.targetModelId !== sourceModelId
+                              ? current.targetModelId
+                              : fallbackTarget,
+                        };
+                      })
+                    }
+                    className={fieldClassName()}
+                    disabled={Boolean(activeTask) || isLoading || siteContent.models.length < 2}
+                  >
+                    {siteContent.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name} - {model.gallery.length} previa(s),{' '}
+                        {model.fullContentVideos?.length ?? 0} exclusivo(s)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className={labelClassName()}>Destino</span>
+                  <select
+                    value={moveContentForm.targetModelId}
+                    onChange={(event) =>
+                      setMoveContentForm((current) => ({
+                        ...current,
+                        targetModelId: event.target.value,
+                      }))
+                    }
+                    className={fieldClassName()}
+                    disabled={Boolean(activeTask) || isLoading || siteContent.models.length < 2}
+                  >
+                    {siteContent.models
+                      .filter((model) => model.id !== moveContentForm.sourceModelId)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name} - {model.gallery.length} previa(s),{' '}
+                          {model.fullContentVideos?.length ?? 0} exclusivo(s)
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-4 sm:grid-cols-2">
+                <label className="flex items-start gap-3 text-sm text-white/75">
+                  <input
+                    type="checkbox"
+                    checked={moveContentForm.moveGallery}
+                    onChange={(event) =>
+                      setMoveContentForm((current) => ({
+                        ...current,
+                        moveGallery: event.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 accent-rose-500"
+                    disabled={Boolean(activeTask) || isLoading}
+                  />
+                  <span>
+                    Mover previas da home/modal
+                    <small className="block pt-1 text-xs text-white/45">
+                      Imagens e videos cadastrados na galeria da modelo.
+                    </small>
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-3 text-sm text-white/75">
+                  <input
+                    type="checkbox"
+                    checked={moveContentForm.moveFullContent}
+                    onChange={(event) =>
+                      setMoveContentForm((current) => ({
+                        ...current,
+                        moveFullContent: event.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 accent-rose-500"
+                    disabled={Boolean(activeTask) || isLoading}
+                  />
+                  <span>
+                    Mover exclusivos
+                    <small className="block pt-1 text-xs text-white/45">
+                      Videos completos e suas paginas independentes.
+                    </small>
+                  </span>
+                </label>
+              </div>
+
+              <p className="text-xs leading-5 text-white/45">
+                Os arquivos nao sao apagados nem reenviados; apenas mudam de modelo dentro do
+                conteudo salvo.
+              </p>
+
+              <button
+                type="submit"
+                disabled={Boolean(activeTask) || isLoading || siteContent.models.length < 2}
+                className={buttonClassName()}
+              >
+                {getSubmitLabel('move-content', 'Mover conteudo', 'Movendo conteudo...')}
+              </button>
             </form>
           </AdminSection>
 

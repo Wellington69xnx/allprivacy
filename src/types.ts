@@ -116,6 +116,8 @@ export interface UploadAssetResult {
   mimeType: string;
   size: number;
   thumbnailUrl?: string;
+  optimized?: boolean;
+  originalSize?: number;
 }
 
 export interface TelegramCacheWarmFailure {
