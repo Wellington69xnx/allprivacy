@@ -32,12 +32,13 @@ import {
   getModelTelegramPayload,
   getTelegramEntryUrl,
 } from './lib/telegramEntry';
-import type { PreviewCard } from './types';
+import type { PreviewCard, SiteContent } from './types';
 
 const TELEGRAM_GROUP_URL =
   import.meta.env.VITE_TELEGRAM_GROUP_URL || 'https://t.me/seu_grupo_vip';
 const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '';
 const XV_DOWNLOAD_BOT_URL = 'https://t.me/xv_download_bot';
+const SITE_ASSET_VERSION_PARAM = '_apv';
 
 type CurrentView =
   | { type: 'site' }
@@ -89,6 +90,74 @@ function pickRandomHeroBackground(
   const nextPool = filteredPool.length > 0 ? filteredPool : nonRecentPool.length > 0 ? nonRecentPool : pool;
   const randomIndex = Math.floor(Math.random() * nextPool.length);
   return nextPool[randomIndex] || pool[0] || heroBackdrop;
+}
+
+function appendLocalUploadVersion(assetUrl: string, version: string) {
+  const normalizedAssetUrl = String(assetUrl || '').trim();
+  const normalizedVersion = String(version || '').trim();
+
+  if (!normalizedAssetUrl || !normalizedVersion || typeof window === 'undefined') {
+    return normalizedAssetUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedAssetUrl, window.location.origin);
+
+    if (parsedUrl.origin !== window.location.origin || !parsedUrl.pathname.startsWith('/uploads/')) {
+      return normalizedAssetUrl;
+    }
+
+    parsedUrl.searchParams.set(SITE_ASSET_VERSION_PARAM, normalizedVersion);
+
+    if (/^https?:\/\//i.test(normalizedAssetUrl)) {
+      return parsedUrl.toString();
+    }
+
+    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+  } catch {
+    return normalizedAssetUrl;
+  }
+}
+
+function versionPublicSiteContentAssets(siteContent: SiteContent, version: string): SiteContent {
+  if (!version) {
+    return siteContent;
+  }
+
+  const versionAsset = (assetUrl?: string) =>
+    appendLocalUploadVersion(assetUrl || '', version);
+
+  return {
+    ...siteContent,
+    models: siteContent.models.map((model) => ({
+      ...model,
+      profileImage: versionAsset(model.profileImage),
+      coverImage: versionAsset(model.coverImage),
+      gallery: model.gallery.map((item) => ({
+        ...item,
+        thumbnail: versionAsset(item.thumbnail),
+        src: item.src ? versionAsset(item.src) : item.src,
+      })),
+      fullContentVideos: (model.fullContentVideos || []).map((item) => ({
+        ...item,
+        videoUrl: versionAsset(item.videoUrl),
+      })),
+    })),
+    groupProofItems: siteContent.groupProofItems.map((item) => ({
+      ...item,
+      image: versionAsset(item.image),
+    })),
+    heroBackgrounds: {
+      mobile: siteContent.heroBackgrounds.mobile.map((item) => ({
+        ...item,
+        image: versionAsset(item.image),
+      })),
+      desktop: siteContent.heroBackgrounds.desktop.map((item) => ({
+        ...item,
+        image: versionAsset(item.image),
+      })),
+    },
+  };
 }
 
 function getCurrentView(): CurrentView {
@@ -152,11 +221,20 @@ export default function App() {
   const [isHomeHeroReady, setIsHomeHeroReady] = useState(false);
   const heroBackgroundCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const heroBackgroundHistoryRef = useRef<string[]>([]);
-  const { siteContent, isLoading: isSiteLoading, ...actions } = useSiteContent();
+  const {
+    siteContent,
+    siteContentVersion,
+    isLoading: isSiteLoading,
+    ...actions
+  } = useSiteContent();
   const adminAuth = useAdminAuth();
+  const publicSiteContent = useMemo(
+    () => versionPublicSiteContentAssets(siteContent, siteContentVersion),
+    [siteContent, siteContentVersion],
+  );
   const visibleHomeModels = useMemo(
-    () => siteContent.models.filter((model) => !model.hiddenOnHome),
-    [siteContent.models],
+    () => publicSiteContent.models.filter((model) => !model.hiddenOnHome),
+    [publicSiteContent.models],
   );
   const videoPreviewCards = useMemo(
     () => getRandomPreviewCardsByType(visibleHomeModels, 'video', 12),
@@ -381,8 +459,8 @@ export default function App() {
 
     const syncBackgroundPool = () => {
       const nextPool = buildHeroBackgroundPool(
-        siteContent.heroBackgrounds.mobile,
-        siteContent.heroBackgrounds.desktop,
+        publicSiteContent.heroBackgrounds.mobile,
+        publicSiteContent.heroBackgrounds.desktop,
         mediaQuery.matches,
       );
       setHeroBackgroundPool(nextPool);
@@ -412,8 +490,8 @@ export default function App() {
   }, [
     currentView.type,
     isSiteLoading,
-    siteContent.heroBackgrounds.desktop,
-    siteContent.heroBackgrounds.mobile,
+    publicSiteContent.heroBackgrounds.desktop,
+    publicSiteContent.heroBackgrounds.mobile,
   ]);
 
   useEffect(() => {
@@ -482,7 +560,7 @@ export default function App() {
   }, [currentView.type, heroBackgroundPool, heroBackgroundSrc]);
 
   const selectedModel =
-    siteContent.models.find((model) => model.id === selectedModelId) ?? null;
+    publicSiteContent.models.find((model) => model.id === selectedModelId) ?? null;
   const handlePreviewOwnerSelect = (card: PreviewCard) => {
     const nextModelId =
       visibleHomeModels.find((model) => model.id === card.ownerId)?.id ?? null;
@@ -553,7 +631,7 @@ export default function App() {
   }
 
   if (currentView.type === 'model') {
-    const showcaseModel = findModelByRouteSlug(siteContent.models, currentView.modelSlug);
+    const showcaseModel = findModelByRouteSlug(publicSiteContent.models, currentView.modelSlug);
     const showcaseEntryHref = showcaseModel
       ? buildEntryHref(getModelTelegramPayload(showcaseModel))
       : TELEGRAM_GROUP_URL;
@@ -563,7 +641,7 @@ export default function App() {
         <ModelShowcasePage
           model={showcaseModel}
           ctaHref={showcaseEntryHref}
-          groupProofItems={siteContent.groupProofItems}
+          groupProofItems={publicSiteContent.groupProofItems}
           isLoading={isSiteLoading}
         />
         <StaticInfoModal
@@ -576,7 +654,7 @@ export default function App() {
 
   if (currentView.type === 'model-video') {
     const showcaseVideoEntry = findModelByVideoRoute(
-      siteContent.models,
+      publicSiteContent.models,
       currentView.modelSlug,
       currentView.routeToken,
     );
@@ -688,7 +766,7 @@ export default function App() {
             sectionClassName="pt-11 sm:pt-10"
           />
 
-          <TelegramProof items={siteContent.groupProofItems} />
+          <TelegramProof items={publicSiteContent.groupProofItems} />
           <PreviewCarousel
             eyebrow="AllPrivacy.site"
             title="XVideosRED BOT"
@@ -734,7 +812,7 @@ export default function App() {
 
       <ModelModal
         model={selectedModel}
-        models={siteContent.models}
+        models={publicSiteContent.models}
         onClose={() => setSelectedModelId(null)}
         ctaHref={selectedModelEntryHref}
       />

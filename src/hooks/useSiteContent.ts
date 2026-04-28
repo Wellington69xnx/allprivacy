@@ -21,6 +21,7 @@ const TRIM_EXISTING_VIDEO_ENDPOINT = '/api/admin/video/trim-existing';
 const TELEGRAM_CACHE_WARM_ENDPOINT = '/api/admin/telegram-cache/warm-all';
 const TELEGRAM_CACHE_SINGLE_ENDPOINT = '/api/admin/telegram-cache/warm-one';
 const SITE_CONTENT_CACHE_KEY = 'allprivacy-site-content-cache-v2';
+const SITE_CONTENT_UPDATE_STORAGE_KEY = 'allprivacy-site-content-updated-at';
 const LEGACY_SITE_CONTENT_CACHE_KEYS = [
   'allprivacy-site-content-cache-v1',
   SITE_CONTENT_CACHE_KEY,
@@ -81,6 +82,8 @@ interface GroupProofInput {
 
 interface SiteContentResponse {
   siteContent: SiteContent;
+  siteContentVersion?: string;
+  generatedAt?: string;
 }
 
 interface TelegramCacheWarmStatusResponse {
@@ -220,6 +223,28 @@ function buildUncachedSiteContentEndpoint() {
   return `${SITE_CONTENT_ENDPOINT}?_=${encodeURIComponent(version)}`;
 }
 
+function getSiteContentResponseVersion(data: SiteContentResponse) {
+  return data.siteContentVersion || data.generatedAt || `${Date.now()}`;
+}
+
+function publishSiteContentUpdate(version: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      SITE_CONTENT_UPDATE_STORAGE_KEY,
+      JSON.stringify({
+        version,
+        updatedAt: Date.now(),
+      }),
+    );
+  } catch {
+    // O sinal entre abas e apenas conveniencia; o salvamento ja aconteceu.
+  }
+}
+
 function buildMediaItem(input: MediaInput) {
   const nextThumbnail =
     input.type === 'video'
@@ -335,6 +360,7 @@ export function useSiteContent() {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [siteContentVersion, setSiteContentVersion] = useState('');
   const [error, setError] = useState<string | null>(null);
   const siteContentRef = useRef(siteContent);
 
@@ -363,6 +389,7 @@ export function useSiteContent() {
       const data = await parseJsonResponse<SiteContentResponse>(response);
       siteContentRef.current = data.siteContent;
       setSiteContent(data.siteContent);
+      setSiteContentVersion(getSiteContentResponseVersion(data));
       writeCachedSiteContent(data.siteContent);
       setError(null);
     } catch (error) {
@@ -387,6 +414,38 @@ export function useSiteContent() {
     void loadSiteContent();
   }, [loadSiteContent]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const refreshSiteContent = () => {
+      void loadSiteContent();
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'hidden') {
+        refreshSiteContent();
+      }
+    };
+
+    const refreshFromStorageEvent = (event: StorageEvent) => {
+      if (event.key === SITE_CONTENT_UPDATE_STORAGE_KEY && event.newValue) {
+        refreshSiteContent();
+      }
+    };
+
+    window.addEventListener('focus', refreshSiteContent);
+    window.addEventListener('storage', refreshFromStorageEvent);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.removeEventListener('focus', refreshSiteContent);
+      window.removeEventListener('storage', refreshFromStorageEvent);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadSiteContent]);
+
   const persistSiteContent = useCallback(async (nextContent: SiteContent) => {
     setIsSaving(true);
 
@@ -406,7 +465,10 @@ export function useSiteContent() {
       const data = await parseJsonResponse<SiteContentResponse>(response);
       siteContentRef.current = data.siteContent;
       setSiteContent(data.siteContent);
+      const nextVersion = getSiteContentResponseVersion(data);
+      setSiteContentVersion(nextVersion);
       writeCachedSiteContent(data.siteContent);
+      publishSiteContentUpdate(nextVersion);
       setError(null);
 
       return data.siteContent;
@@ -1096,6 +1158,7 @@ export function useSiteContent() {
 
   return {
     siteContent,
+    siteContentVersion,
     isLoading,
     isSaving,
     error,

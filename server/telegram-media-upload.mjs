@@ -6,7 +6,8 @@ import { promises as fs } from 'node:fs';
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
-import { Api, TelegramClient } from 'telegram';
+import { Api, TelegramClient, utils } from 'telegram';
+import { CustomFile, _fileToMedia } from 'telegram/client/uploads.js';
 import { StringSession } from 'telegram/sessions/index.js';
 
 dotenv.config({ quiet: true });
@@ -495,6 +496,7 @@ function isSkippableUploadError(error) {
     'PHOTO_INVALID_DIMENSIONS',
     'PHOTO_EXT_INVALID',
     'MEDIA_INVALID',
+    'MEDIA_EMPTY',
   ].some((code) => reason.includes(code));
 }
 
@@ -652,7 +654,7 @@ async function buildAuthorizedClient() {
   }
 
   if (!authorized) {
-    await client.disconnect().catch(() => {});
+    await client.disconnect().catch(() => { });
     throw new Error('Nao foi possivel autenticar a conta principal.');
   }
 
@@ -1247,28 +1249,78 @@ async function readVideoMetadata(videoPath) {
 async function createVideoThumbnail(videoPath, thumbnailPath) {
   await fs.mkdir(path.dirname(thumbnailPath), { recursive: true });
 
-  await execFileAsync(
-    'ffmpeg',
-    [
-      '-y',
-      '-ss',
-      '00:00:01',
-      '-i',
-      videoPath,
-      '-frames:v',
-      '1',
-      '-vf',
-      "scale='if(gt(iw,ih),320,-2)':'if(gt(iw,ih),-2,320)'",
-      '-q:v',
-      '12',
-      thumbnailPath,
-    ],
-    {
-      windowsHide: true,
-      timeout: 60000,
-      maxBuffer: 1024 * 1024,
-    },
+  const tempThumbnailPath = path.join(
+    path.dirname(thumbnailPath),
+    `${path.parse(thumbnailPath).name}.${Date.now()}.tmp.jpg`,
   );
+  const thumbnailProfiles = [
+    { edge: 320, quality: 18 },
+    { edge: 260, quality: 22 },
+    { edge: 220, quality: 26 },
+    { edge: 180, quality: 30 },
+  ];
+
+  try {
+    for (const profile of thumbnailProfiles) {
+      try {
+        await fs.unlink(tempThumbnailPath);
+      } catch {
+        // Arquivo temporario pode nao existir.
+      }
+
+      await execFileAsync(
+        'ffmpeg',
+        [
+          '-y',
+          '-ss',
+          '00:00:01',
+          '-i',
+          videoPath,
+          '-frames:v',
+          '1',
+          '-vf',
+          `scale='if(gt(iw,ih),${profile.edge},-2)':'if(gt(iw,ih),-2,${profile.edge})'`,
+          '-q:v',
+          String(profile.quality),
+          tempThumbnailPath,
+        ],
+        {
+          windowsHide: true,
+          timeout: 60000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
+
+      const thumbnailSizeBytes = await pathSizeBytes(tempThumbnailPath);
+
+      if (thumbnailSizeBytes > 0 && thumbnailSizeBytes <= 20 * 1024) {
+        try {
+          await fs.unlink(thumbnailPath);
+        } catch {
+          // Thumb anterior pode nao existir.
+        }
+
+        await fs.rename(tempThumbnailPath, thumbnailPath);
+        return;
+      }
+    }
+
+    try {
+      await fs.unlink(thumbnailPath);
+    } catch {
+      // Thumb anterior pode nao existir.
+    }
+
+    await fs.rename(tempThumbnailPath, thumbnailPath);
+  } catch (error) {
+    try {
+      await fs.unlink(tempThumbnailPath);
+    } catch {
+      // Ignora limpeza secundaria.
+    }
+
+    throw error;
+  }
 }
 
 async function pathSizeBytes(filePath) {
@@ -1280,34 +1332,52 @@ async function pathSizeBytes(filePath) {
   }
 }
 
-async function prepareVideoSendOptions(file) {
+function buildVideoAttributes(file, metadata) {
+  return [
+    new Api.DocumentAttributeVideo({
+      duration: metadata.duration,
+      w: metadata.width,
+      h: metadata.height,
+      supportsStreaming: true,
+    }),
+    new Api.DocumentAttributeFilename({
+      fileName: file.fileName,
+    }),
+  ];
+}
+
+async function prepareVideoSendOptions(file, options = {}) {
   if (!file || file.mediaKind !== 'video') {
     return {};
   }
 
   try {
     const thumbnailPath = buildVideoThumbnailCachePath(file);
+    const includeThumb = options.includeThumb !== false;
+    const metadata = await readVideoMetadata(file.absolutePath);
+    let thumb = undefined;
 
-    if (!(await pathExists(thumbnailPath))) {
-      await createVideoThumbnail(file.absolutePath, thumbnailPath);
+    if (includeThumb) {
+      try {
+        if (!(await pathExists(thumbnailPath)) || (await pathSizeBytes(thumbnailPath)) > 20 * 1024) {
+          await createVideoThumbnail(file.absolutePath, thumbnailPath);
+        }
+
+        const thumbnailSizeBytes = await pathSizeBytes(thumbnailPath);
+        thumb = thumbnailSizeBytes > 0 && thumbnailSizeBytes <= 20 * 1024 ? thumbnailPath : undefined;
+      } catch (error) {
+        console.log(
+          `[telegram-upload] Aviso: nao consegui gerar thumbnail para ${file.fileName}: ${normalizeTelegramError(
+            error,
+            'falha desconhecida',
+          )}`,
+        );
+      }
     }
 
-    const thumbnailSizeBytes = await pathSizeBytes(thumbnailPath);
-    const metadata = await readVideoMetadata(file.absolutePath);
-
     return {
-      thumb: thumbnailSizeBytes > 0 && thumbnailSizeBytes <= 200 * 1024 ? thumbnailPath : undefined,
-      attributes: [
-        new Api.DocumentAttributeVideo({
-          duration: metadata.duration,
-          w: metadata.width,
-          h: metadata.height,
-          supportsStreaming: true,
-        }),
-        new Api.DocumentAttributeFilename({
-          fileName: file.fileName,
-        }),
-      ],
+      thumb,
+      attributes: buildVideoAttributes(file, metadata),
     };
   } catch (error) {
     console.log(
@@ -1318,6 +1388,100 @@ async function prepareVideoSendOptions(file) {
     );
     return {};
   }
+}
+
+async function uploadAlbumMediaItem(client, inputEntity, preparedFile, sourceFile, videoThumbs) {
+  const videoOptions =
+    videoThumbs && sourceFile.mediaKind === 'video'
+      ? await prepareVideoSendOptions(sourceFile, { includeThumb: true })
+      : {};
+  const { media } = await _fileToMedia(client, {
+    file: preparedFile,
+    forceDocument: false,
+    attributes: videoOptions.attributes,
+    thumb: videoOptions.thumb,
+    supportsStreaming: sourceFile.mediaKind === 'video',
+  });
+
+  if (
+    media instanceof Api.InputMediaUploadedPhoto ||
+    media instanceof Api.InputMediaPhotoExternal
+  ) {
+    const uploadedMedia = await client.invoke(
+      new Api.messages.UploadMedia({
+        peer: inputEntity,
+        media,
+      }),
+    );
+
+    if (uploadedMedia instanceof Api.MessageMediaPhoto) {
+      return utils.getInputMedia(uploadedMedia.photo);
+    }
+  }
+
+  if (media instanceof Api.InputMediaUploadedDocument) {
+    const uploadedMedia = await client.invoke(
+      new Api.messages.UploadMedia({
+        peer: inputEntity,
+        media,
+      }),
+    );
+
+    if (uploadedMedia instanceof Api.MessageMediaDocument) {
+      return utils.getInputMedia(uploadedMedia.document);
+    }
+  }
+
+  return media;
+}
+
+async function sendAlbumWithPerFileVideoMetadata({
+  client,
+  inputEntity,
+  batch,
+  preparedFiles,
+  topicTopMsgId,
+  videoThumbs,
+}) {
+  const albumFiles = [];
+
+  for (let index = 0; index < batch.length; index += 1) {
+    const sourceFile = batch[index];
+    const preparedFile = preparedFiles[index];
+    const media = await uploadAlbumMediaItem(
+      client,
+      inputEntity,
+      preparedFile,
+      sourceFile,
+      videoThumbs,
+    );
+
+    albumFiles.push(
+      new Api.InputSingleMedia({
+        media,
+        message: '',
+        entities: [],
+      }),
+    );
+  }
+
+  const replyTo =
+    topicTopMsgId > 0
+      ? new Api.InputReplyToMessage({
+          replyToMsgId: topicTopMsgId,
+          topMsgId: topicTopMsgId,
+        })
+      : undefined;
+  const result = await client.invoke(
+    new Api.messages.SendMultiMedia({
+      peer: inputEntity,
+      replyTo,
+      multiMedia: albumFiles,
+    }),
+  );
+  const randomIds = albumFiles.map((media) => media.randomId);
+
+  return client._getResponseMessage(randomIds, result, inputEntity);
 }
 
 async function sendBatchWithRetry({
@@ -1332,13 +1496,24 @@ async function sendBatchWithRetry({
     return;
   }
 
-  const files = batch.map((item) => item.absolutePath);
   const singleVideoOptions =
     videoThumbs && batch.length === 1 && batch[0]?.mediaKind === 'video'
       ? await prepareVideoSendOptions(batch[0])
       : {};
+  const shouldUsePerFileVideoMetadata =
+    videoThumbs && batch.length > 1 && batch.some((item) => item.mediaKind === 'video');
+  const preparedFiles = await Promise.all(
+    batch.map(async (item) => {
+      let buffer = undefined;
+      if (item.sizeBytes <= 20 * 1024 * 1024) {
+        buffer = await fs.readFile(item.absolutePath);
+      }
+      return new CustomFile(item.fileName, item.sizeBytes, item.absolutePath, buffer);
+    })
+  );
+
   const requestOptions = {
-    file: files.length === 1 ? files[0] : files,
+    file: preparedFiles.length === 1 ? preparedFiles[0] : preparedFiles,
     forceDocument: false,
     supportsStreaming: batch.some((item) => item.mediaKind === 'video'),
     ...singleVideoOptions,
@@ -1350,7 +1525,18 @@ async function sendBatchWithRetry({
     attempt += 1;
 
     try {
-      await client.sendFile(inputEntity, requestOptions);
+      if (shouldUsePerFileVideoMetadata) {
+        await sendAlbumWithPerFileVideoMetadata({
+          client,
+          inputEntity,
+          batch,
+          preparedFiles,
+          topicTopMsgId,
+          videoThumbs,
+        });
+      } else {
+        await client.sendFile(inputEntity, requestOptions);
+      }
       return {
         skipped: false,
         reason: '',
@@ -1367,11 +1553,12 @@ async function sendBatchWithRetry({
         continue;
       }
 
-      if (batch.length === 1 && isSkippableUploadError(error)) {
+      if (isSkippableUploadError(error)) {
         const reason = normalizeTelegramError(error, 'arquivo invalido');
+        const fileNames = batch.length === 1 ? batch[0].relativePath : `${batch.length} arquivo(s) neste lote`;
 
         console.log(
-          `[telegram-upload] Pulando arquivo invalido: ${batch[0].relativePath} | motivo: ${reason}`,
+          `[telegram-upload] Pulando arquivo(s)/lote invalido(s): ${fileNames} | motivo: ${reason}`,
         );
 
         return {
@@ -1679,7 +1866,7 @@ async function main() {
     console.log(`[telegram-upload] Tempo total: ${formatDuration(totalElapsedMs)}`);
   } finally {
     if (client) {
-      await client.disconnect().catch(() => {});
+      await client.disconnect().catch(() => { });
     }
   }
 }

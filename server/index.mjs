@@ -919,7 +919,7 @@ async function trimUploadedVideo(filePath, trimMeta) {
 }
 
 function resolveLocalUploadPath(assetUrl) {
-  const normalizedUrl = toText(assetUrl);
+  const normalizedUrl = toText(assetUrl).split(/[?#]/)[0] || '';
 
   if (!normalizedUrl.startsWith('/uploads/')) {
     return null;
@@ -2043,6 +2043,24 @@ async function readSiteContent() {
   }
 }
 
+async function getSiteContentVersion() {
+  try {
+    const stats = await fs.stat(siteContentPath);
+    const modifiedAt = Math.max(0, Math.round(Number(stats.mtimeMs || 0)));
+    return `${modifiedAt}-${Math.max(0, Number(stats.size || 0))}`;
+  } catch {
+    return `${Date.now()}-0`;
+  }
+}
+
+async function buildSiteContentResponse(siteContent) {
+  return {
+    siteContent,
+    siteContentVersion: await getSiteContentVersion(),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 async function writeSiteContent(content) {
   await ensureStorage();
 
@@ -2707,8 +2725,15 @@ app.use('/api', (_req, res, next) => {
 });
 
 const uploadsStaticMiddleware = express.static(uploadsDir, {
-  immutable: true,
-  maxAge: '30d',
+  etag: true,
+  immutable: false,
+  lastModified: true,
+  maxAge: 0,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-cache');
+    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-cache');
+  },
 });
 
 app.use('/uploads', (req, res, next) => {
@@ -2763,7 +2788,7 @@ app.post('/api/admin/logout', (_req, res) => {
 
 app.get('/api/site-content', async (_req, res) => {
   const siteContent = await readSiteContent();
-  res.json({ siteContent });
+  res.json(await buildSiteContentResponse(siteContent));
 });
 
 app.get('/api/health', async (_req, res) => {
@@ -2954,7 +2979,7 @@ app.post('/api/payments/syncpay/webhook', async (req, res) => {
 
 app.put('/api/site-content', requireAdminAuth, async (req, res) => {
   const siteContent = await writeSiteContent(req.body);
-  res.json({ siteContent });
+  res.json(await buildSiteContentResponse(siteContent));
 });
 
 app.get('/api/admin/telegram-cache/warm-all', requireAdminAuth, (req, res) => {
